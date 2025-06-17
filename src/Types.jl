@@ -16,6 +16,18 @@ function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{Complex
     sbs.mean_fields = mean_fields
 end
 
+function set_mean_fields!(sbs::SchwingerBosonSystem, x::Vector{Float64})
+    if length(x) ≠ 27
+        throw(ArgumentError("Input vector must have length 27."))
+    end
+    for i in 1:12
+        sbs.mean_fields[i] = x[i] + 1im * x[i+12]
+    end
+    for i in 1:3
+        sbs.mean_fields[12+i] = x[24+i]
+    end
+end
+
 const Vec3 = SVector{3, Float64}
 const Mat3 = SMatrix{3, 3, Float64, 9}
 
