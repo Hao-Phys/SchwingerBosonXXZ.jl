@@ -17,15 +17,15 @@ function ∂D∂A!(∂D∂A_re::Matrix{ComplexF64}, ∂D∂A_im::Matrix{ComplexF
         increment = σ == 1 ? 3 : 1
         j = mod1(i+increment, 6)
 
-        ∂D21_re[i, j] += -0.5 * J₊ * sign * link_phase(α, q_reshaped)
-        ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(link_phase(α, q_reshaped))
         ∂D12_re[i, j] += -0.5 * J₊ * sign * link_phase(α, q_reshaped)
         ∂D12_re[j, i] += -0.5 * J₊ * sign * conj(link_phase(α, q_reshaped))
+        ∂D21_re[i, j] += -0.5 * J₊ * sign * link_phase(α, q_reshaped)
+        ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(link_phase(α, q_reshaped))
 
-        ∂D21_im[i, j] += -0.5 * J₊ * sign * (-1im) * link_phase(α, q_reshaped)
-        ∂D21_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(link_phase(α, q_reshaped))
-        ∂D12_im[i, j] += -0.5 * J₊ * sign * (1im) * link_phase(α, q_reshaped)
-        ∂D12_im[j, i] += -0.5 * J₊ * sign * (1im) * conj(link_phase(α, q_reshaped))
+        ∂D12_im[i, j] += -0.5 * J₊ * sign * (-1im) * link_phase(α, q_reshaped)
+        ∂D12_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(link_phase(α, q_reshaped))
+        ∂D21_im[i, j] += -0.5 * J₊ * sign * (1im) * link_phase(α, q_reshaped)
+        ∂D21_im[j, i] += -0.5 * J₊ * sign * (1im) * conj(link_phase(α, q_reshaped))
     end
 
 end
@@ -108,15 +108,15 @@ function ∂D∂D!(∂D∂D_re::Matrix{ComplexF64}, ∂D∂D_im::Matrix{ComplexF
         increment = σ == 1 ? 3 : 1
         j = mod1(i+increment, 6)
 
-        ∂D21_re[i, j] += -0.5 * J₋ * link_phase(α, q_reshaped)
-        ∂D21_re[j, i] += -0.5 * J₋ * conj(link_phase(α, q_reshaped))
         ∂D12_re[i, j] += -0.5 * J₋ * link_phase(α, q_reshaped)
         ∂D12_re[j, i] += -0.5 * J₋ * conj(link_phase(α, q_reshaped))
+        ∂D21_re[i, j] += -0.5 * J₋ * link_phase(α, q_reshaped)
+        ∂D21_re[j, i] += -0.5 * J₋ * conj(link_phase(α, q_reshaped))
 
-        ∂D21_im[i, j] += -0.5 * J₋ * (-1im) * link_phase(α, q_reshaped)
-        ∂D21_im[j, i] += -0.5 * J₋ * (-1im) * conj(link_phase(α, q_reshaped))
-        ∂D12_im[i, j] += -0.5 * J₋ * (1im) * link_phase(α, q_reshaped)
-        ∂D12_im[j, i] += -0.5 * J₋ * (1im) * conj(link_phase(α, q_reshaped))
+        ∂D12_im[i, j] += -0.5 * J₋ * (-1im) * link_phase(α, q_reshaped)
+        ∂D12_im[j, i] += -0.5 * J₋ * (-1im) * conj(link_phase(α, q_reshaped))
+        ∂D21_im[i, j] += -0.5 * J₋ * (1im) * link_phase(α, q_reshaped)
+        ∂D21_im[j, i] += -0.5 * J₋ * (1im) * conj(link_phase(α, q_reshaped))
     end
 end
 
