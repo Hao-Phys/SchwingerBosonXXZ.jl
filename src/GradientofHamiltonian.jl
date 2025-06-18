@@ -11,21 +11,22 @@ function ∂D∂A!(∂D∂A_re::Matrix{ComplexF64}, ∂D∂A_im::Matrix{ComplexF
     ∂D12_im = view(∂D∂A_im, 1:6, 7:12)
     ∂D21_im = view(∂D∂A_im, 7:12, 1:6)
 
+    phase = link_phase(α, q_reshaped)
     for σ in 1:2
         sign = σ == 1 ? 1 : -1
         i = (α-1) * 2 + σ
         increment = σ == 1 ? 3 : 1
         j = mod1(i+increment, 6)
 
-        ∂D12_re[i, j] += -0.5 * J₊ * sign * link_phase(α, q_reshaped)
-        ∂D12_re[j, i] += -0.5 * J₊ * sign * conj(link_phase(α, q_reshaped))
-        ∂D21_re[i, j] += -0.5 * J₊ * sign * link_phase(α, q_reshaped)
-        ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(link_phase(α, q_reshaped))
+        ∂D12_re[i, j] += -0.5 * J₊ * sign * phase
+        ∂D12_re[j, i] += -0.5 * J₊ * sign * conj(phase)
+        ∂D21_re[i, j] += -0.5 * J₊ * sign * phase
+        ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(phase)
 
-        ∂D12_im[i, j] += -0.5 * J₊ * sign * (-1im) * link_phase(α, q_reshaped)
-        ∂D12_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(link_phase(α, q_reshaped))
-        ∂D21_im[i, j] += -0.5 * J₊ * sign * (1im) * link_phase(α, q_reshaped)
-        ∂D21_im[j, i] += -0.5 * J₊ * sign * (1im) * conj(link_phase(α, q_reshaped))
+        ∂D12_im[i, j] += -0.5 * J₊ * sign * (-1im) * phase
+        ∂D12_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(phase)
+        ∂D21_im[i, j] += -0.5 * J₊ * sign * (1im) * phase
+        ∂D21_im[j, i] += -0.5 * J₊ * sign * (1im) * conj(phase)
     end
 
 end
@@ -42,21 +43,22 @@ function ∂D∂B!(∂D∂B_re::Matrix{ComplexF64}, ∂D∂B_im::Matrix{ComplexF
     ∂D11_im = view(∂D∂B_im, 1:6, 1:6)
     ∂D22_im = view(∂D∂B_im, 7:12, 7:12)
 
+    phase = link_phase(α, q_reshaped)
     for σ in 1:2
         i = (α-1) * 2 + σ
         j = mod1(i+2, 6)
 
         # Below we follow the convention in Sunny to define the dynamical matrix
         # D11 and D22
-        ∂D11_re[i, j] += 0.5 * J₊ * link_phase(α, q_reshaped)
-        ∂D11_re[j, i] += 0.5 * J₊ * conj(link_phase(α, q_reshaped))
-        ∂D22_re[i, j] += 0.5 * J₊ * link_phase(α, q_reshaped)
-        ∂D22_re[j, i] += 0.5 * J₊ * conj(link_phase(α, q_reshaped))
+        ∂D11_re[i, j] += 0.5 * J₊ * phase
+        ∂D11_re[j, i] += 0.5 * J₊ * conj(phase)
+        ∂D22_re[i, j] += 0.5 * J₊ * phase
+        ∂D22_re[j, i] += 0.5 * J₊ * conj(phase)
 
-        ∂D11_im[i, j] += 0.5 * J₊ * (-1im) * link_phase(α, q_reshaped)
-        ∂D11_im[j, i] += 0.5 * J₊ * ( 1im) * conj(link_phase(α, q_reshaped))
-        ∂D22_im[i, j] += 0.5 * J₊ * ( 1im) * link_phase(α, q_reshaped)
-        ∂D22_im[j, i] += 0.5 * J₊ * (-1im) * conj(link_phase(α, q_reshaped))
+        ∂D11_im[i, j] += 0.5 * J₊ * (-1im) * phase
+        ∂D11_im[j, i] += 0.5 * J₊ * ( 1im) * conj(phase)
+        ∂D22_im[i, j] += 0.5 * J₊ * ( 1im) * phase
+        ∂D22_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase)
     end
 end
 
@@ -72,6 +74,7 @@ function ∂D∂C!(∂D∂C_re::Matrix{ComplexF64}, ∂D∂C_im::Matrix{ComplexF
     ∂D11_im = view(∂D∂C_im, 1:6, 1:6)
     ∂D22_im = view(∂D∂C_im, 7:12, 7:12)
 
+    phase = link_phase(α, q_reshaped)
     for σ in 1:2
         sign = σ == 1 ? 1 : -1
         i = (α-1) * 2 + σ
@@ -79,15 +82,15 @@ function ∂D∂C!(∂D∂C_re::Matrix{ComplexF64}, ∂D∂C_im::Matrix{ComplexF
 
         # Below we follow the convention in Sunny to define the dynamical matrix
         # D11 and D22
-        ∂D11_re[i, j] += 0.5 * J₋ * sign * link_phase(α, q_reshaped)
-        ∂D11_re[j, i] += 0.5 * J₋ * sign * conj(link_phase(α, q_reshaped))
-        ∂D22_re[i, j] += 0.5 * J₋ * sign * link_phase(α, q_reshaped)
-        ∂D22_re[j, i] += 0.5 * J₋ * sign * conj(link_phase(α, q_reshaped))
+        ∂D11_re[i, j] += 0.5 * J₋ * sign * phase
+        ∂D11_re[j, i] += 0.5 * J₋ * sign * conj(phase)
+        ∂D22_re[i, j] += 0.5 * J₋ * sign * phase
+        ∂D22_re[j, i] += 0.5 * J₋ * sign * conj(phase)
 
-        ∂D11_im[i, j] += 0.5 * J₋ * sign * (-1im) * link_phase(α, q_reshaped)
-        ∂D11_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(link_phase(α, q_reshaped))
-        ∂D22_im[i, j] += 0.5 * J₋ * sign * ( 1im) * link_phase(α, q_reshaped)
-        ∂D22_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(link_phase(α, q_reshaped))
+        ∂D11_im[i, j] += 0.5 * J₋ * sign * (-1im) * phase
+        ∂D11_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(phase)
+        ∂D22_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase
+        ∂D22_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase)
     end
 end
 
@@ -103,20 +106,21 @@ function ∂D∂D!(∂D∂D_re::Matrix{ComplexF64}, ∂D∂D_im::Matrix{ComplexF
     ∂D21_im = view(∂D∂D_im, 7:12, 1:6)
     ∂D12_im = view(∂D∂D_im, 1:6, 7:12)
 
+    phase = link_phase(α, q_reshaped)
     for σ in 1:2
         i = (α-1) * 2 + σ
         increment = σ == 1 ? 3 : 1
         j = mod1(i+increment, 6)
 
-        ∂D12_re[i, j] += -0.5 * J₋ * link_phase(α, q_reshaped)
-        ∂D12_re[j, i] += -0.5 * J₋ * conj(link_phase(α, q_reshaped))
-        ∂D21_re[i, j] += -0.5 * J₋ * link_phase(α, q_reshaped)
-        ∂D21_re[j, i] += -0.5 * J₋ * conj(link_phase(α, q_reshaped))
+        ∂D12_re[i, j] += -0.5 * J₋ * phase
+        ∂D12_re[j, i] += -0.5 * J₋ * conj(phase)
+        ∂D21_re[i, j] += -0.5 * J₋ * phase
+        ∂D21_re[j, i] += -0.5 * J₋ * conj(phase)
 
-        ∂D12_im[i, j] += -0.5 * J₋ * (-1im) * link_phase(α, q_reshaped)
-        ∂D12_im[j, i] += -0.5 * J₋ * (-1im) * conj(link_phase(α, q_reshaped))
-        ∂D21_im[i, j] += -0.5 * J₋ * (1im) * link_phase(α, q_reshaped)
-        ∂D21_im[j, i] += -0.5 * J₋ * (1im) * conj(link_phase(α, q_reshaped))
+        ∂D12_im[i, j] += -0.5 * J₋ * (-1im) * phase
+        ∂D12_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase)
+        ∂D21_im[i, j] += -0.5 * J₋ * (1im) * phase
+        ∂D21_im[j, i] += -0.5 * J₋ * (1im) * conj(phase)
     end
 end
 

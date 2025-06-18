@@ -33,6 +33,7 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
     D21 = view(D, 7:12, 1:6)
 
     for α in 1:3
+        phase = link_phase(α, q_reshaped)
         for σ in 1:2
             sign = σ == 1 ? 1 : -1
             i = (α-1) * 2 + σ
@@ -40,7 +41,6 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
 
             # Below we follow the convention in Sunny to define the dynamical matrix
             # D11 and D22
-            phase = link_phase(α, q_reshaped)
             D11[i, j] += Q_link(α, sign, J₊, J₋, Bs, Cs) * phase
             D11[j, i] += conj(Q_link(α, sign, J₊, J₋, Bs, Cs)) * conj(phase)
             D22[i, j] += conj(Q_link(α, sign, J₊, J₋, Bs, Cs)) * phase

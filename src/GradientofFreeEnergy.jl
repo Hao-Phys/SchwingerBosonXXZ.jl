@@ -40,7 +40,6 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
     # Contribution from the "entropy" term
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
         single_particle_density_matrix!(P, D, V, tmp, sbs, q)
 
         for α in 1:3
