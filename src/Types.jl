@@ -2,7 +2,7 @@ mutable struct SchwingerBosonSystem
     J :: Float64 # Nearest-neighbor exchange interaction (units of energy)
     Δ :: Float64 # XXZ anisotropy
     S :: Float64 # Spin magnitude
-    T :: Float64
+    T :: Float64 # Temperature (units of energy)
     L :: Int # Linear size of the system, Nu = L²
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
 end
