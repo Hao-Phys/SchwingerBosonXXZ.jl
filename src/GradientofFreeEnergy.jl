@@ -7,11 +7,9 @@ function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{Comple
         # Include the 1/2 factor here
         P[i, i] += coth(E[i] / (2T)) / 2
     end
-    # P = V * coth(E / (2T)) * inv(V) * Ĩ / 2
+    # P = V * diag( coth(E / (2T)) ) * inv(V) / 2
     mul!(tmp, V, P)
     mul!(P, tmp, inv(V))
-    mul!(tmp, P, Ĩ)
-    copyto!(P, tmp)
 end
 
 
@@ -41,6 +39,8 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        mul!(tmp, P, Ĩ)
+        copyto!(P, tmp)
 
         for α in 1:3
             ∂D∂A!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
