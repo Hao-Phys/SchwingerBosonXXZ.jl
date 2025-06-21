@@ -1,0 +1,145 @@
+
+function divided_difference!(sbs, Dmat, E; atol=1e-8)
+    Dmat .= 0.0
+    T = sbs.T
+    for i in eachindex(E), j in eachindex(E)
+        if isapprox(E[i], E[j]; atol)
+            Dmat[i, j] += -csch(E[i]/(2T))^2 / (2T)
+        else
+            Dmat[i, j] += (coth(E[i]/2T) - coth(E[j]/2T)) / (E[i] - E[j])
+        end
+    end
+end
+
+
+function jacobian!(sbs::SchwingerBosonSystem, x, ja)
+    ja .= 0.0
+    set_mean_fields!(sbs, x)
+
+    D = zeros(ComplexF64, 12, 12)
+    Dmat = zeros(ComplexF64, 12, 12)
+    V = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
+    tmp2 = zeros(ComplexF64, 12, 12)
+
+    (; L) = sbs
+    Nu = L^2
+
+    ∂D∂X_re = zeros(ComplexF64, 12, 12)
+    ∂D∂X_im = zeros(ComplexF64, 12, 12)
+    ∂D∂la = zeros(ComplexF64, 12, 12)
+
+    ja_mat = reshape(ja, 3, 27)
+
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        dynamical_matrix!(D, sbs, q)
+        E = bogoliubov!(V, D)
+        inv_V = inv(V)
+        divided_difference!(sbs, Dmat, E)
+        for α in 1:3
+            # Calculate ∂ (ID) / ∂λα
+            ∂D∂λ!(∂D∂la, α)
+            mul!(tmp, Ĩ, ∂D∂la)
+            copyto!(∂D∂la, tmp)
+
+            for β in 1:3
+                ∂D∂A!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
+
+                mul!(tmp, Ĩ, ∂D∂X_re)
+                copyto!(∂D∂X_re, tmp)
+                mul!(tmp, inv_V, ∂D∂X_re)
+                mul!(∂D∂X_re, tmp, V)
+                tmp .= Dmat .* ∂D∂X_re
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β] += real(tr(tmp * ∂D∂la))
+
+                mul!(tmp, Ĩ, ∂D∂X_im)
+                copyto!(∂D∂X_im, tmp)
+                mul!(tmp, inv_V, ∂D∂X_im)
+                mul!(∂D∂X_im, tmp, V)
+                tmp .= Dmat .* ∂D∂X_im
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+12] += real(tr(tmp * ∂D∂la))
+
+                ∂D∂B!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
+
+                mul!(tmp, Ĩ, ∂D∂X_re)
+                copyto!(∂D∂X_re, tmp)
+                mul!(tmp, inv_V, ∂D∂X_re)
+                mul!(∂D∂X_re, tmp, V)
+                tmp .= Dmat .* ∂D∂X_re
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+3] += real(tr(tmp * ∂D∂la))
+
+                mul!(tmp, Ĩ, ∂D∂X_im)
+                copyto!(∂D∂X_im, tmp)
+                mul!(tmp, inv_V, ∂D∂X_im)
+                mul!(∂D∂X_im, tmp, V)
+                tmp .= Dmat .* ∂D∂X_im
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+15] += real(tr(tmp * ∂D∂la))
+
+                ∂D∂C!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
+
+                mul!(tmp, Ĩ, ∂D∂X_re)
+                copyto!(∂D∂X_re, tmp)
+                mul!(tmp, inv_V, ∂D∂X_re)
+                mul!(∂D∂X_re, tmp, V)
+                tmp .= Dmat .* ∂D∂X_re
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+6] += real(tr(tmp * ∂D∂la))
+
+                mul!(tmp, Ĩ, ∂D∂X_im)
+                copyto!(∂D∂X_im, tmp)
+                mul!(tmp, inv_V, ∂D∂X_im)
+                mul!(∂D∂X_im, tmp, V)
+                tmp .= Dmat .* ∂D∂X_im
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+18] += real(tr(tmp * ∂D∂la))
+
+                ∂D∂D!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
+
+                mul!(tmp, Ĩ, ∂D∂X_re)
+                copyto!(∂D∂X_re, tmp)
+                mul!(tmp, inv_V, ∂D∂X_re)
+                mul!(∂D∂X_re, tmp, V)
+                tmp .= Dmat .* ∂D∂X_re
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+9] += real(tr(tmp * ∂D∂la))
+
+                mul!(tmp, Ĩ, ∂D∂X_im)
+                copyto!(∂D∂X_im, tmp)
+                mul!(tmp, inv_V, ∂D∂X_im)
+                mul!(∂D∂X_im, tmp, V)
+                tmp .= Dmat .* ∂D∂X_im
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+21] += real(tr(tmp * ∂D∂la))
+
+                ∂D∂λ!(∂D∂X_re, β)
+
+                mul!(tmp, Ĩ, ∂D∂X_re)
+                copyto!(∂D∂X_re, tmp)
+                mul!(tmp, inv_V, ∂D∂X_re)
+                mul!(∂D∂X_re, tmp, V)
+                tmp .= Dmat .* ∂D∂X_re
+                mul!(tmp2, V, tmp)
+                mul!(tmp, tmp2, inv_V)
+                ja_mat[α, β+24] += real(tr(tmp * ∂D∂la))
+            end
+
+        end
+
+    end
+
+    @. ja /= (2Nu)
+
+end
