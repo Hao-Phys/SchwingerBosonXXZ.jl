@@ -4,7 +4,7 @@ function divided_difference!(sbs, Dmat, E; atol=1e-8)
     T = sbs.T
     for i in eachindex(E), j in eachindex(E)
         if isapprox(E[i], E[j]; atol)
-            Dmat[i, j] += -csch(E[i]/(2T))^2 / (2T)
+            Dmat[i, j] += T > 1e-8 ? -csch(E[i]/(2T))^2 / (2T) : 0.0
         else
             Dmat[i, j] += (coth(E[i]/2T) - coth(E[j]/2T)) / (E[i] - E[j])
         end
