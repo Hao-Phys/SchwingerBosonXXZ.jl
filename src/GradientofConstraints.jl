@@ -140,6 +140,6 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
 
     end
 
-    @. ja /= (2Nu)
+    @. ja /= (4Nu)
 
 end
