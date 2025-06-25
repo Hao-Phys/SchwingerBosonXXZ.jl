@@ -14,7 +14,7 @@ end
 
 function jacobian!(sbs::SchwingerBosonSystem, x, ja)
     ja .= 0.0
-    set_mean_fields!(sbs, x)
+    set_x!(sbs, x)
 
     D = zeros(ComplexF64, 12, 12)
     Dmat = zeros(ComplexF64, 12, 12)

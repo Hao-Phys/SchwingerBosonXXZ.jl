@@ -15,7 +15,7 @@ end
 
 function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
     g .= 0.0
-    set_mean_fields!(sbs, x)
+    set_x!(sbs, x)
 
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)

@@ -1,5 +1,5 @@
 function free_energy!(sbs::SchwingerBosonSystem, x)
-    set_mean_fields!(sbs, x)
+    set_x!(sbs, x)
 
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)

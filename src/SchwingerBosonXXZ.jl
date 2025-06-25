@@ -5,7 +5,7 @@ import StaticArrays: SVector, SMatrix
 using NLsolve
 
 include("Types.jl")
-export SchwingerBosonSystem, set_mean_fields!
+export SchwingerBosonSystem, set_mean_fields!, set_x!
 include("HamiltonianMeanField.jl")
 include("DispersionAndIntensities.jl")
 export excitations, dispersion
