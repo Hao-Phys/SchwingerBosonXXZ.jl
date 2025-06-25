@@ -2,18 +2,14 @@ function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{Comple
     P .= 0.0
     (; T) = sbs
     dynamical_matrix!(D, sbs, q_reshaped)
-    try
-        E = bogoliubov!(V, D)
-        for i in eachindex(E)
-            # Include the 1/2 factor here
-            P[i, i] += coth(E[i] / (2T)) / 4
-        end
-        # P = V * diag( coth(E / (2T)) ) * inv(V) / 2
-        mul!(tmp, V, P)
-        mul!(P, tmp, inv(V))
-    catch e
-        P .= 0.0
+    E = bogoliubov!(V, D)
+    for i in eachindex(E)
+        # Include the 1/2 factor here
+        P[i, i] += coth(E[i] / (2T)) / 4
     end
+    # P = V * diag( coth(E / (2T)) ) * inv(V) / 2
+    mul!(tmp, V, P)
+    mul!(P, tmp, inv(V))
 end
 
 

@@ -29,7 +29,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
     ∂D∂X_im = zeros(ComplexF64, 12, 12)
     ∂D∂la = zeros(ComplexF64, 12, 12)
 
-    ja_mat = reshape(ja, 3, 27)
+    ja_mat = reshape(ja, 4, 27)
 
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
@@ -53,7 +53,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_re
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 mul!(tmp, Ĩ, ∂D∂X_im)
                 copyto!(∂D∂X_im, tmp)
@@ -62,7 +62,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_im
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+12] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+12] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 ∂D∂B!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
 
@@ -73,7 +73,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_re
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+3] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+3] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 mul!(tmp, Ĩ, ∂D∂X_im)
                 copyto!(∂D∂X_im, tmp)
@@ -82,7 +82,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_im
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+15] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+15] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 ∂D∂C!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
 
@@ -93,7 +93,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_re
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+6] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+6] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 mul!(tmp, Ĩ, ∂D∂X_im)
                 copyto!(∂D∂X_im, tmp)
@@ -102,7 +102,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_im
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+18] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+18] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 ∂D∂D!(∂D∂X_re, ∂D∂X_im, sbs, q, β)
 
@@ -113,7 +113,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_re
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+9] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+9] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 mul!(tmp, Ĩ, ∂D∂X_im)
                 copyto!(∂D∂X_im, tmp)
@@ -122,7 +122,7 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_im
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+21] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+21] += real(tr(tmp * ∂D∂la)) / (4Nu)
 
                 ∂D∂λ!(∂D∂X_re, β)
 
@@ -133,13 +133,32 @@ function jacobian!(sbs::SchwingerBosonSystem, x, ja)
                 tmp .= Dmat .* ∂D∂X_re
                 mul!(tmp2, V, tmp)
                 mul!(tmp, tmp2, inv_V)
-                ja_mat[α, β+24] += real(tr(tmp * ∂D∂la))
+                ja_mat[α, β+24] += real(tr(tmp * ∂D∂la)) / (4Nu)
             end
 
         end
 
     end
 
-    @. ja /= (4Nu)
-
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        dynamical_matrix!(D, sbs, q)
+        inv_D = inv(D)
+        for α in 1:3
+            ∂D∂A!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ja_mat[4, α] += real(tr(inv_D * ∂D∂X_re)) / Nu
+            ja_mat[4, α+12] += real(tr(inv_D * ∂D∂X_im)) / Nu
+            ∂D∂B!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ja_mat[4, α+3] += real(tr(inv_D * ∂D∂X_re)) / Nu
+            ja_mat[4, α+15] += real(tr(inv_D * ∂D∂X_im)) / Nu
+            ∂D∂C!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ja_mat[4, α+6] += real(tr(inv_D * ∂D∂X_re)) / Nu
+            ja_mat[4, α+18] += real(tr(inv_D * ∂D∂X_im)) / Nu
+            ∂D∂D!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ja_mat[4, α+9] += real(tr(inv_D * ∂D∂X_re)) / Nu
+            ja_mat[4, α+21] += real(tr(inv_D * ∂D∂X_im)) / Nu
+            ∂D∂λ!(∂D∂X_re, α)
+            ja_mat[4, α+24] += real(tr(inv_D * ∂D∂X_re)) / Nu
+        end
+    end
 end

@@ -19,10 +19,14 @@ function constraints!(sbs::SchwingerBosonSystem, x, c)
             single_particle_density_matrix!(P, D, V, tmp, sbs, q)
             mul!(tmp, P, Ĩ)
             copyto!(P, tmp)
-            c[α] += real(tr(P * ∂D∂X))
+            c[α] += real(tr(P * ∂D∂X)) / Nu
         end
+        c[α] -= (2S+1)
     end
 
-    @. c /= Nu
-    @. c -= (2S+1)
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        dynamical_matrix!(D, sbs, q)
+        c[4] += real(logdet(D)) / Nu
+    end
 end
