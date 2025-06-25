@@ -12,10 +12,14 @@ function free_energy!(sbs::SchwingerBosonSystem, x)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         dynamical_matrix!(D, sbs, q)
-        E = bogoliubov!(V, D)
-        for i in 1:6
-            f += E[i] / 2
-            (T > 1e-8) && (f += real(T * log1p(exp(-E[i]/T))))
+        try
+            E = bogoliubov!(V, D)
+            for i in 1:6
+                f += E[i] / 2
+                (T > 1e-8) && (f += real(T * log1p(exp(-E[i]/T))))
+            end
+        catch e
+            return Inf
         end
     end
 
