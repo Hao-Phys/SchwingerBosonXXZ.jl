@@ -16,7 +16,7 @@ function free_energy!(sbs::SchwingerBosonSystem, x)
             E = bogoliubov!(V, D)
             for i in 1:6
                 f += E[i] / 2
-                (T > 1e-8) && (f += real(T * log1p(exp(-E[i]/T))))
+                (T > 1e-8) && (f += real(T * log1p(-exp(-E[i]/T))))
             end
         catch e
             return Inf
