@@ -27,6 +27,11 @@ function constraints!(sbs::SchwingerBosonSystem, x, c)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         dynamical_matrix!(D, sbs, q)
-        c[4] += real(logdet(D)) / Nu
+        try
+            cholesky(D)
+            c[4] += real(logdet(D)) / Nu
+        catch e
+            c[4] = -Inf
+        end
     end
 end
