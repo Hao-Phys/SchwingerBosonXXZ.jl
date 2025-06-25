@@ -2,12 +2,25 @@ mutable struct SchwingerBosonSystem
     J :: Float64 # Nearest-neighbor exchange interaction (units of energy)
     Δ :: Float64 # XXZ anisotropy
     S :: Float64 # Spin magnitude
-    T :: Float64 # Temperature (units of energy)
+    T :: Float64 # Temperature (in units of J)
     L :: Int # Linear size of the system, Nu = L²
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
 end
 
 SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, zeros(ComplexF64, 15))
+
+function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
+    (; J, Δ, S, T, L, mean_fields) = sbs
+    printstyled(io, "SchwingerBosonSystem", "\n"; bold=true, color=:underline)
+    println(io, "J = ", J, " Δ = ", Δ, " S = ", S, " T = ", T, " L = ", L)
+    println("Mean field values: ")
+    for i in 1:3
+        println("A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])
+        println("C[$i]= ", mean_fields[i+6], " D[$i]= ", mean_fields[i+9])
+        println("λ[$i]= ", mean_fields[i+12])
+    end
+end
+
 
 function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
     if length(mean_fields) ≠ 15
