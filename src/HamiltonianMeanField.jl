@@ -55,8 +55,8 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
             D21[j, i] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * conj(phase)
 
             # Diagonal terms
-            D11[i, i] += λs[α]
-            D22[i, i] += λs[α]
+            D11[i, i] += real(λs[α])
+            D22[i, i] += real(λs[α])
         end
     end
 end
