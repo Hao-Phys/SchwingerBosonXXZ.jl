@@ -26,7 +26,7 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
     P = zeros(ComplexF64, 12, 12)
     tmp = zeros(ComplexF64, 12, 12)
 
-    (; L, J, Δ, mean_fields) = sbs
+    (; L, J, Δ, mean_fields, S) = sbs
     Nu = L^2
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
@@ -67,14 +67,14 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
     @. g /= Nu
     
     for α in 1:3
-        g[α]   += 3J₊ * real(As[α])
-        g[α+3] -= 3J₊ * real(Bs[α])
-        g[α+6] -= 3J₋ * real(Cs[α])
-        g[α+9] += 3J₋ * real(Ds[α])
-        g[α+12] += 3J₊ * imag(As[α])
-        g[α+15] -= 3J₊ * imag(Bs[α])
-        g[α+18] -= 3J₋ * imag(Cs[α])
-        g[α+21] += 3J₋ * imag(Ds[α])
-        g[α+24] -= 1
+        g[α]   += 6J₊ * real(As[α])
+        g[α+3] -= 6J₊ * real(Bs[α])
+        g[α+6] -= 6J₋ * real(Cs[α])
+        g[α+9] += 6J₋ * real(Ds[α])
+        g[α+12] += 6J₊ * imag(As[α])
+        g[α+15] -= 6J₊ * imag(Bs[α])
+        g[α+18] -= 6J₋ * imag(Cs[α])
+        g[α+21] += 6J₋ * imag(Ds[α])
+        g[α+24] -= (1 + 2S)
     end
 end
