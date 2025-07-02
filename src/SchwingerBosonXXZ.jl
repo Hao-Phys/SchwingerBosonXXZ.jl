@@ -13,9 +13,6 @@ include("FreeEnergy.jl")
 include("GradientofHamiltonian.jl")
 include("GradientofFreeEnergy.jl")
 
-include("Constraints.jl")
-include("GradientofConstraints.jl")
-
 include("ExpectationValues.jl")
 export expectation_values
 include("SelfConsistentEqns.jl")
