@@ -75,6 +75,6 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
         g[α+15] -= 6J₊ * imag(Bs[α])
         g[α+18] -= 6J₋ * imag(Cs[α])
         g[α+21] += 6J₋ * imag(Ds[α])
-        g[α+24] -= (1 + 2S)
+        g[α+24] += (1 + 2S)
     end
 end

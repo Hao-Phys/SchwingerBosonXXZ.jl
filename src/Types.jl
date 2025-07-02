@@ -17,7 +17,7 @@ function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     for i in 1:3
         println("A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])
         println("C[$i]= ", mean_fields[i+6], " D[$i]= ", mean_fields[i+9])
-        println("λ[$i]= ", mean_fields[i+12])
+        println("μ[$i]= ", mean_fields[i+12])
     end
 end
 

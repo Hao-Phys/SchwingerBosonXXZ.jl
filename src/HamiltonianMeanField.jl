@@ -24,7 +24,7 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
     Bs = mean_fields[4:6]
     Cs = mean_fields[7:9]
     Ds = mean_fields[10:12]
-    λs = mean_fields[13:15]
+    μs = mean_fields[13:15]
 
     # Block structure of the dynamical matrix
     D11 = view(D, 1:6, 1:6)
@@ -55,8 +55,8 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
             D21[j, i] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * conj(phase)
 
             # Diagonal terms
-            D11[i, i] += real(λs[α])
-            D22[i, i] += real(λs[α])
+            D11[i, i] += -real(μs[α])
+            D22[i, i] += -real(μs[α])
         end
     end
 end

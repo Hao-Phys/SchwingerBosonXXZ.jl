@@ -33,11 +33,11 @@ function free_energy!(sbs::SchwingerBosonSystem, x)
     Bs = mean_fields[4:6]
     Cs = mean_fields[7:9]
     Ds = mean_fields[10:12]
-    λs = mean_fields[13:15]
+    μs = mean_fields[13:15]
 
     # Contribution from the "energy" term
     for α in 1:3
-        f += -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α])) - real(λs[α]) - 2S*(real(λs[α]))
+        f += -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α])) + real(μs[α]) + 2S*(real(μs[α]))
     end
 
     return f
