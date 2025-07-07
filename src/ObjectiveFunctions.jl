@@ -16,17 +16,60 @@ function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{Comple
     end
 end
 
+# Objective function for the chemical potential optimization and its gradient
+function fg_μ!(sbs::SchwingerBosonSystem, f, g, x)
+    set_μ!(sbs, x)
 
-function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
+    # Calculate the gradient
     g .= 0.0
-    set_x!(sbs, x)
-
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
     P = zeros(ComplexF64, 12, 12)
     tmp = zeros(ComplexF64, 12, 12)
 
-    (; L, J, Δ, mean_fields, S) = sbs
+    (; L, S) = sbs
+    Nu = L^2
+
+    ∂D∂X_re = zeros(ComplexF64, 12, 12)
+
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        mul!(tmp, P, Ĩ)
+        copyto!(P, tmp)
+        for α in 1:3
+            ∂D∂μ!(∂D∂X_re, α)
+            g[α] += -real(tr(P * ∂D∂X_re))
+        end
+    end
+
+    @. g /= Nu
+
+    for α in 1:3
+        g[α] += -(1+2S)
+    end
+
+    # The function value
+    f = - free_energy(sbs)
+    return f
+end
+
+# Objective function for the mean field parameters optimization and its gradient
+function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, x)
+    set_ϕ!(sbs, x)
+
+    μ0 = real(sbs.mean_fields[13:15])
+    optimize_μ!(sbs, μ0)
+
+    # Calculate the gradient
+    g .= 0.0
+    # Buffers
+    D = zeros(ComplexF64, 12, 12)
+    V = zeros(ComplexF64, 12, 12)
+    P = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
+
+    (; L, J, Δ, mean_fields) = sbs
     Nu = L^2
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
@@ -59,8 +102,6 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
             ∂D∂D!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
             g[α+9] += real(tr(P * ∂D∂X_re))
             g[α+21] += real(tr(P * ∂D∂X_im))
-            ∂D∂λ!(∂D∂X_re, α)
-            g[α+24] += real(tr(P * ∂D∂X_re))
         end
     end
 
@@ -75,6 +116,10 @@ function grad_free_energy!(sbs::SchwingerBosonSystem, x, g)
         g[α+15] -= 6J₊ * imag(Bs[α])
         g[α+18] -= 6J₋ * imag(Cs[α])
         g[α+21] += 6J₋ * imag(Ds[α])
-        g[α+24] += (1 + 2S)
     end
+
+    # The function value
+    f = free_energy(sbs)
+
+    return f
 end

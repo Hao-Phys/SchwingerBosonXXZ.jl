@@ -124,11 +124,11 @@ function ∂D∂D!(∂D∂D_re::Matrix{ComplexF64}, ∂D∂D_im::Matrix{ComplexF
     end
 end
 
-function ∂D∂λ!(∂D∂λ::Matrix{ComplexF64}, α::Int)
-    ∂D∂λ .= 0.0
+function ∂D∂μ!(∂D∂μ::Matrix{ComplexF64}, α::Int)
+    ∂D∂μ .= 0.0
     for σ in 1:2
         i = (α-1) * 2 + σ
-        ∂D∂λ[i, i] += 1.0
-        ∂D∂λ[i+6, i+6] += 1.0
+        ∂D∂μ[i, i] -= 1.0
+        ∂D∂μ[i+6, i+6] -= 1.0
     end
 end

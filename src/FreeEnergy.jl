@@ -1,6 +1,4 @@
-function free_energy!(sbs::SchwingerBosonSystem, x)
-    set_x!(sbs, x)
-
+function free_energy(sbs::SchwingerBosonSystem)
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
 
@@ -41,15 +39,4 @@ function free_energy!(sbs::SchwingerBosonSystem, x)
     end
 
     return f
-end
-
-function free_energy(sbs::SchwingerBosonSystem)
-    x = zeros(27)
-    for i in 1:12
-        x[i], x[i+12] = reim(sbs.mean_fields[i])
-    end
-    for i in 1:3
-        x[24+i] = real(sbs.mean_fields[12+i])
-    end
-    return free_energy!(sbs, x)
 end

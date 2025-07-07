@@ -26,7 +26,9 @@ function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{Complex
     if length(mean_fields) ≠ 15
         throw(ArgumentError("Mean fields vector must have length 15."))
     end
-    sbs.mean_fields = mean_fields
+    for i in 1:15
+        sbs.mean_fields[i] = mean_fields[i]
+    end
 end
 
 function set_x!(sbs::SchwingerBosonSystem, x)
@@ -38,6 +40,24 @@ function set_x!(sbs::SchwingerBosonSystem, x)
     end
     for i in 1:3
         sbs.mean_fields[12+i] = x[24+i]
+    end
+end
+
+function set_ϕ!(sbs::SchwingerBosonSystem, ϕ)
+    if length(ϕ) ≠ 24
+        throw(ArgumentError("Mean field vector must have length 24."))
+    end
+    for i in 1:12
+        sbs.mean_fields[i] = ϕ[i] + 1im * ϕ[i+12]
+    end
+end
+
+function set_μ!(sbs::SchwingerBosonSystem, μ)
+    if length(μ) ≠ 3
+        throw(ArgumentError("Chemical potential vector must have length 3."))
+    end
+    for i in 1:3
+        sbs.mean_fields[12+i] = μ[i]
     end
 end
 
