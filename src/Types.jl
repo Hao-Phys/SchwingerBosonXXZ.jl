@@ -31,6 +31,15 @@ function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{Complex
     end
 end
 
+function set_mean_fields_scf!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
+    if length(mean_fields) ≠ 12
+        throw(ArgumentError("Mean fields vector must have length 12."))
+    end
+    for i in 1:12
+        sbs.mean_fields[i] = mean_fields[i]
+    end
+end
+
 function set_x!(sbs::SchwingerBosonSystem, x)
     if length(x) ≠ 27
         throw(ArgumentError("Input vector must have length 27."))
