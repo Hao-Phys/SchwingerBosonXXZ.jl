@@ -1,5 +1,7 @@
+# Below, we calculate the gradient of Ĩ * D with respect to the mean fields. 
+
 # Note that ∂D/∂[Re(χ)] = ∂D/∂χ + ∂D/∂conj(χ), and ∂D/∂[Im(χ)] = -1im * (∂D/∂χ - ∂D/∂conj(χ)).
-function ∂D∂A!(∂D∂A_re::Matrix{ComplexF64}, ∂D∂A_im::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
+function ∂ID∂A!(∂D∂A_re, ∂D∂A_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
     ∂D∂A_re .= 0.0
     ∂D∂A_im .= 0.0
 
@@ -29,9 +31,13 @@ function ∂D∂A!(∂D∂A_re::Matrix{ComplexF64}, ∂D∂A_im::Matrix{ComplexF
         ∂D21_im[j, i] += -0.5 * J₊ * sign * (1im) * conj(phase)
     end
 
+    mul!(tmp, Ĩ, ∂D∂A_re)
+    copyto!(∂D∂A_re, tmp)
+    mul!(tmp, Ĩ, ∂D∂A_im)
+    copyto!(∂D∂A_im, tmp)
 end
 
-function ∂D∂B!(∂D∂B_re::Matrix{ComplexF64}, ∂D∂B_im::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
+function ∂ID∂B!(∂D∂B_re, ∂D∂B_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
     ∂D∂B_re .= 0.0
     ∂D∂B_im .= 0.0
 
@@ -60,9 +66,14 @@ function ∂D∂B!(∂D∂B_re::Matrix{ComplexF64}, ∂D∂B_im::Matrix{ComplexF
         ∂D22_im[i, j] += 0.5 * J₊ * ( 1im) * phase
         ∂D22_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase)
     end
+
+    mul!(tmp, Ĩ, ∂D∂B_re)
+    copyto!(∂D∂B_re, tmp)
+    mul!(tmp, Ĩ, ∂D∂B_im)
+    copyto!(∂D∂B_im, tmp)
 end
 
-function ∂D∂C!(∂D∂C_re::Matrix{ComplexF64}, ∂D∂C_im::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
+function ∂ID∂C!(∂D∂C_re, ∂D∂C_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
     ∂D∂C_re .= 0.0
     ∂D∂C_im .= 0.0
 
@@ -92,9 +103,14 @@ function ∂D∂C!(∂D∂C_re::Matrix{ComplexF64}, ∂D∂C_im::Matrix{ComplexF
         ∂D22_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase
         ∂D22_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase)
     end
+
+    mul!(tmp, Ĩ, ∂D∂C_re)
+    copyto!(∂D∂C_re, tmp)
+    mul!(tmp, Ĩ, ∂D∂C_im)
+    copyto!(∂D∂C_im, tmp)
 end
 
-function ∂D∂D!(∂D∂D_re::Matrix{ComplexF64}, ∂D∂D_im::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
+function ∂ID∂D!(∂D∂D_re, ∂D∂D_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
     ∂D∂D_re .= 0.0
     ∂D∂D_im .= 0.0
 
@@ -122,13 +138,20 @@ function ∂D∂D!(∂D∂D_re::Matrix{ComplexF64}, ∂D∂D_im::Matrix{ComplexF
         ∂D21_im[i, j] += -0.5 * J₋ * (1im) * phase
         ∂D21_im[j, i] += -0.5 * J₋ * (1im) * conj(phase)
     end
+
+    mul!(tmp, Ĩ, ∂D∂D_re)
+    copyto!(∂D∂D_re, tmp)
+    mul!(tmp, Ĩ, ∂D∂D_im)
+    copyto!(∂D∂D_im, tmp)
 end
 
-function ∂D∂μ!(∂D∂μ::Matrix{ComplexF64}, α::Int)
+function ∂ID∂μ!(∂D∂μ, tmp, α::Int)
     ∂D∂μ .= 0.0
     for σ in 1:2
         i = (α-1) * 2 + σ
         ∂D∂μ[i, i] -= 1.0
         ∂D∂μ[i+6, i+6] -= 1.0
     end
+    mul!(tmp, Ĩ, ∂D∂μ)
+    copyto!(∂D∂μ, tmp)
 end

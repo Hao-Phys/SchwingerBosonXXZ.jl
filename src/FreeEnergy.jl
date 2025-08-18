@@ -12,9 +12,9 @@ function free_energy_boson(sbs::SchwingerBosonSystem)
         dynamical_matrix!(D, sbs, q)
         try
             E = bogoliubov!(V, D)
-            for i in 1:6
-                f += E[i] / 2
-                (T > 1e-8) && (f += real(T * log1p(-exp(-E[i]/T))))
+            for n in 1:6
+                f += E[n] / 2
+                (T > 1e-8) && (f += real(T * log1p(-exp(-E[n]/T))))
             end
         catch e
             return Inf
@@ -78,21 +78,19 @@ function free_energy_variational(sbs::SchwingerBosonSystem)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-        mul!(tmp, P, Ĩ)
-        copyto!(P, tmp)
 
         for α in 1:3
-            ∂D∂A!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ∂ID∂A!(∂D∂X_re, ∂D∂X_im, tmp, sbs, q, α)
             # The factor of 1/2 is from the Writing derivative of complex number
             Πα_re[1, α] += -inv_J₊ * real(tr(P * ∂D∂X_re)) / (2Nu)
             Πα_im[1, α] += -inv_J₊ * real(tr(P * ∂D∂X_im)) / (2Nu)
-            ∂D∂B!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ∂ID∂B!(∂D∂X_re, ∂D∂X_im, tmp, sbs, q, α)
             Πα_re[2, α] +=  inv_J₊ * real(tr(P * ∂D∂X_re)) / (2Nu)
             Πα_im[2, α] +=  inv_J₊ * real(tr(P * ∂D∂X_im)) / (2Nu)
-            ∂D∂C!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ∂ID∂C!(∂D∂X_re, ∂D∂X_im, tmp, sbs, q, α)
             Πα_re[3, α] +=  inv_J₋ * real(tr(P * ∂D∂X_re)) / (2Nu)
             Πα_im[3, α] +=  inv_J₋ * real(tr(P * ∂D∂X_im)) / (2Nu)
-            ∂D∂D!(∂D∂X_re, ∂D∂X_im, sbs, q, α)
+            ∂ID∂D!(∂D∂X_re, ∂D∂X_im, tmp, sbs, q, α)
             Πα_re[4, α] += -inv_J₋ * real(tr(P * ∂D∂X_re)) / (2Nu)
             Πα_im[4, α] += -inv_J₋ * real(tr(P * ∂D∂X_im)) / (2Nu)
         end
