@@ -49,10 +49,10 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
             # D21 and D12
             increment = σ == 1 ? 3 : 1
             j = mod1(i+increment, 6)
-            D12[i, j] += P_link(α, sign, J₊, J₋, As, Ds) * phase
-            D12[j, i] += P_link(α, sign, J₊, J₋, As, Ds) * conj(phase)
-            D21[i, j] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * phase
-            D21[j, i] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * conj(phase)
+            D21[i, j] += P_link(α, sign, J₊, J₋, As, Ds) * phase
+            D21[j, i] += P_link(α, sign, J₊, J₋, As, Ds) * conj(phase)
+            D12[i, j] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * phase
+            D12[j, i] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * conj(phase)
 
             # Diagonal terms
             D11[i, i] += -real(μs[α])

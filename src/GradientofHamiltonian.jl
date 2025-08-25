@@ -1,6 +1,6 @@
 # Below, we calculate the gradient of Ĩ * D with respect to the mean fields. 
 
-# Note that ∂D/∂[Re(χ)] = ∂D/∂χ + ∂D/∂conj(χ), and ∂D/∂[Im(χ)] = -1im * (∂D/∂χ - ∂D/∂conj(χ)).
+# Note that ∂D/∂[Re(χ)] = ∂D/∂χ + ∂D/∂conj(χ), and ∂D/∂[Im(χ)] = 1im * (∂D/∂χ - ∂D/∂conj(χ)).
 function ∂ID∂A!(∂D∂A_re, ∂D∂A_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
     ∂D∂A_re .= 0.0
     ∂D∂A_im .= 0.0
@@ -25,10 +25,10 @@ function ∂ID∂A!(∂D∂A_re, ∂D∂A_im, tmp, sbs::SchwingerBosonSystem, q_
         ∂D21_re[i, j] += -0.5 * J₊ * sign * phase
         ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(phase)
 
+        ∂D21_im[i, j] += -0.5 * J₊ * sign * ( 1im) * phase
+        ∂D21_im[j, i] += -0.5 * J₊ * sign * ( 1im) * conj(phase)
         ∂D12_im[i, j] += -0.5 * J₊ * sign * (-1im) * phase
         ∂D12_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(phase)
-        ∂D21_im[i, j] += -0.5 * J₊ * sign * (1im) * phase
-        ∂D21_im[j, i] += -0.5 * J₊ * sign * (1im) * conj(phase)
     end
 
     mul!(tmp, Ĩ, ∂D∂A_re)
@@ -61,10 +61,10 @@ function ∂ID∂B!(∂D∂B_re, ∂D∂B_im, tmp, sbs::SchwingerBosonSystem, q_
         ∂D22_re[i, j] += 0.5 * J₊ * phase
         ∂D22_re[j, i] += 0.5 * J₊ * conj(phase)
 
-        ∂D11_im[i, j] += 0.5 * J₊ * (-1im) * phase
-        ∂D11_im[j, i] += 0.5 * J₊ * ( 1im) * conj(phase)
-        ∂D22_im[i, j] += 0.5 * J₊ * ( 1im) * phase
-        ∂D22_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase)
+        ∂D11_im[i, j] += 0.5 * J₊ * ( 1im) * phase
+        ∂D11_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase)
+        ∂D22_im[i, j] += 0.5 * J₊ * (-1im) * phase
+        ∂D22_im[j, i] += 0.5 * J₊ * ( 1im) * conj(phase)
     end
 
     mul!(tmp, Ĩ, ∂D∂B_re)
@@ -98,10 +98,10 @@ function ∂ID∂C!(∂D∂C_re, ∂D∂C_im, tmp, sbs::SchwingerBosonSystem, q_
         ∂D22_re[i, j] += 0.5 * J₋ * sign * phase
         ∂D22_re[j, i] += 0.5 * J₋ * sign * conj(phase)
 
-        ∂D11_im[i, j] += 0.5 * J₋ * sign * (-1im) * phase
-        ∂D11_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(phase)
-        ∂D22_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase
-        ∂D22_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase)
+        ∂D11_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase
+        ∂D11_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase)
+        ∂D22_im[i, j] += 0.5 * J₋ * sign * (-1im) * phase
+        ∂D22_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(phase)
     end
 
     mul!(tmp, Ĩ, ∂D∂C_re)
@@ -133,10 +133,10 @@ function ∂ID∂D!(∂D∂D_re, ∂D∂D_im, tmp, sbs::SchwingerBosonSystem, q_
         ∂D21_re[i, j] += -0.5 * J₋ * phase
         ∂D21_re[j, i] += -0.5 * J₋ * conj(phase)
 
+        ∂D21_im[i, j] += -0.5 * J₋ * ( 1im) * phase
+        ∂D21_im[j, i] += -0.5 * J₋ * ( 1im) * conj(phase)
         ∂D12_im[i, j] += -0.5 * J₋ * (-1im) * phase
         ∂D12_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase)
-        ∂D21_im[i, j] += -0.5 * J₋ * (1im) * phase
-        ∂D21_im[j, i] += -0.5 * J₋ * (1im) * conj(phase)
     end
 
     mul!(tmp, Ĩ, ∂D∂D_re)
