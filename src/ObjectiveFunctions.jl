@@ -77,20 +77,35 @@ end
 
 # The variational free energy objective function for Optim
 function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
+    if isnothing(g)
+        g = zero(ϕ)
+    end
     # Make sure to set the mean fields to the `sbs` object
     set_ϕ!(sbs, ϕ)
 
-    # Maximize the mean-field free energy to find the optimal chemical potential
-    μ0 = real(sbs.mean_fields[13:15])
-    optimize_μ!(sbs, μ0)
+    # Calculate the "temperature*entropy" term of the free energy
+    (; L, J, Δ, S, T) = sbs
+    Nu = L^2
 
     # Buffers
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
 
-    # Calculate the "temperature*entropy" term of the free energy
-    (; L, J, Δ, S, T) = sbs
-    Nu = L^2
+    # Maximize the mean-field free energy to find the optimal chemical potential
+    # But we need a μ0 such that the dynamical matrix is positive definite
+    eigvals_min = Float64[]
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        dynamical_matrix!(D, sbs, q)
+        eigval_min = eigmin(D)
+        push!(eigvals_min, eigval_min)
+    end
+
+    τ = max(0.0, -minimum(eigvals_min))
+    μ0s = sbs.mean_fields[13:15] .- (τ + T)
+
+    optimize_μ!(sbs, μ0s)
+
     f = 0.0
     nα = zeros(3)
 
@@ -117,7 +132,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     end
 
     # Sometimes even though the dynamical matrix is positive definite, the number of Schwinger bosons per site may different from 2S, leading to unphysical mean-fields.
-    if prod(isapprox.(nα, 2S; atol=1e-6))
+    if prod(isapprox.(nα, 2S; atol=1e-4))
         # The "normal" operation
         # Initialize the gradient
         g .= 0.0
@@ -168,7 +183,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
                 ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], tmp, sbs, q, α)
             end
 
-            for α in 1:24
+            @views for α in 1:24
                 # Gradient from entropy term
                 g[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
                 # Calculate the second derivatives of the quadratic free energy
