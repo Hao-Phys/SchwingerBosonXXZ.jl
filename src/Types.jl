@@ -5,9 +5,10 @@ mutable struct SchwingerBosonSystem
     T :: Float64 # Temperature (in units of J)
     L :: Int # Linear size of the system, Nu = L²
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
+    μs :: Vector{Float64} # The chemical potentials (not the mean-field variables)
 end
 
-SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, zeros(ComplexF64, 15))
+SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, zeros(ComplexF64, 15), zeros(3))
 
 function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     (; J, Δ, S, T, L, mean_fields) = sbs
@@ -17,7 +18,7 @@ function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     for i in 1:3
         println("A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])
         println("C[$i]= ", mean_fields[i+6], " D[$i]= ", mean_fields[i+9])
-        println("μ[$i]= ", mean_fields[i+12])
+        println("μ0[$i]= ", mean_fields[i+12])
     end
 end
 
@@ -61,12 +62,12 @@ function set_ϕ!(sbs::SchwingerBosonSystem, ϕ)
     end
 end
 
-function set_μ!(sbs::SchwingerBosonSystem, μ)
-    if length(μ) ≠ 3
-        throw(ArgumentError("Chemical potential vector must have length 3."))
+function set_μ0!(sbs::SchwingerBosonSystem, μ0)
+    if length(μ0) ≠ 3
+        throw(ArgumentError("Mean-field chemical potential vector must have length 3."))
     end
     for i in 1:3
-        sbs.mean_fields[12+i] = μ[i]
+        sbs.mean_fields[12+i] = μ0[i]
     end
 end
 

@@ -17,7 +17,7 @@ function self_consistent_mean_fields!(f, x, sbs::SchwingerBosonSystem)
     τ = max(0.0, -minimum(eigvals_min))
     μ0s = sbs.mean_fields[13:15] .- (τ + T)
 
-    optimize_μ!(sbs, μ0s)
+    optimize_μ0!(sbs, μ0s)
     expectations = expectation_values(sbs)
     f[1:12] = expectations[1:12] - x[1:12]
 end

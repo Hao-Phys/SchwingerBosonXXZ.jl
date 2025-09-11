@@ -145,13 +145,13 @@ function ∂ID∂D!(∂D∂D_re, ∂D∂D_im, tmp, sbs::SchwingerBosonSystem, q_
     copyto!(∂D∂D_im, tmp)
 end
 
-function ∂ID∂μ!(∂D∂μ, tmp, α::Int)
-    ∂D∂μ .= 0.0
+function ∂ID∂μ0!(∂D∂μ0, tmp, α::Int)
+    ∂D∂μ0 .= 0.0
     for σ in 1:2
         i = (α-1) * 2 + σ
-        ∂D∂μ[i, i] -= 1.0
-        ∂D∂μ[i+6, i+6] -= 1.0
+        ∂D∂μ0[i, i] -= 1.0
+        ∂D∂μ0[i+6, i+6] -= 1.0
     end
-    mul!(tmp, Ĩ, ∂D∂μ)
-    copyto!(∂D∂μ, tmp)
+    mul!(tmp, Ĩ, ∂D∂μ0)
+    copyto!(∂D∂μ0, tmp)
 end

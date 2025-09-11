@@ -18,8 +18,8 @@ function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{Comple
 end
 
 # Objective function for the chemical potential optimization and its gradient
-function fg_μ!(sbs::SchwingerBosonSystem, f, g, x)
-    set_μ!(sbs, x)
+function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
+    set_μ0!(sbs, x)
 
     # Calculate the gradient
     g .= 0.0
@@ -37,7 +37,7 @@ function fg_μ!(sbs::SchwingerBosonSystem, f, g, x)
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         single_particle_density_matrix!(P, D, V, tmp, sbs, q)
         for α in 1:3
-            ∂ID∂μ!(∂D∂X_re, tmp, α)
+            ∂ID∂μ0!(∂D∂X_re, tmp, α)
             g[α] += -real(tr(P * ∂D∂X_re))
         end
     end
@@ -75,7 +75,7 @@ function divided_aux!(tmp, tmp2, Dmat, ∂D∂X, V, inv_V)
     mul!(tmp, tmp2, inv_V)
 end
 
-# The variational free energy objective function with (incorrect gradient) for Optim
+# The variational free energy objective function with gradient for Optim
 function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     if isnothing(g)
         g = zero(ϕ)
@@ -104,10 +104,9 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     τ = max(0.0, -minimum(eigvals_min))
     μ0s = sbs.mean_fields[13:15] .- (τ + T)
 
-    optimize_μ!(sbs, μ0s)
+    optimize_μ0!(sbs, μ0s)
 
     f = 0.0
-    nα = zeros(3)
 
     # Contribution from the "entropy" term
     for i in 1:L, j in 1:L
@@ -118,9 +117,6 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
             for n in 1:6
                 f += E[n] / (2Nu)
                 (T > 1e-8) && (f += real(T * log1p(-exp(-E[n]/T))) / Nu)
-                for α in 1:3
-                    nα[α] += ((abs2(V[combine_index(α,1), n]) + abs2(V[combine_index(α,2), n])) * bose(E[n], T) + (abs2(V[combine_index(α,1), n+6]) + abs2(V[combine_index(α,2), n+6]) * bose(E[n+6], T))) / Nu
-                end
             end
         # If the dynamical matrix is not positive definite, return to Inf immediately
         catch _
@@ -131,214 +127,93 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
         end
     end
 
-    # Sometimes even though the dynamical matrix is positive definite, the number of Schwinger bosons per site may different from 2S, leading to unphysical mean-fields.
-    if prod(isapprox.(nα, 2S; atol=1e-4))
-        # The "normal" operation
-        # Initialize the gradient
-        g .= 0.0
-        # Buffers to calculate the gradient
-        P = zeros(ComplexF64, 12, 12)
-        tmp = zeros(ComplexF64, 12, 12)
-        tmp2 = zeros(ComplexF64, 12, 12)
-        Dmat = zeros(ComplexF64, 12, 12)
-        # Buffers to hold the derivatives of the dynamical matrix
-        ∂ID∂ϕs = zeros(ComplexF64, 12, 12, 24)
-        ∂F2αβ = zeros(24, 24)
+    g .= 0.0
+    # Buffers to calculate the gradient
+    P = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
+    tmp2 = zeros(ComplexF64, 12, 12)
+    Dmat = zeros(ComplexF64, 12, 12)
+    # Buffers to hold the derivatives of the dynamical matrix
+    ∂ID∂ϕs = zeros(ComplexF64, 12, 12, 27)
+    ∂F2α = zeros(27)
+    ∂F2αβ = zeros(27, 27)
 
-        # The "interaction" strength
-        J₊ = J * (Δ + 1) / 2
-        J₋ = J * (Δ - 1) / 2
-        inv_J₊ = J₊ == 0 ? 0 : 1 / J₊
-        inv_J₋ = J₋ == 0 ? 0 : 1 / J₋
-        fα = zeros(24)
-        inv_fα = zeros(24)
-        for α in (1, 2, 3, 13, 14, 15)
-            fα[α] = -J₊
-            inv_fα[α] = -inv_J₊
-        end
-        for α in (4, 5, 6, 16, 17, 18)
-            fα[α] = J₊
-            inv_fα[α] = inv_J₊
-        end
-        for α in (7, 8, 9, 19, 20, 21)
-            fα[α] = J₋
-            inv_fα[α] = inv_J₋
-        end
-        for α in (10, 11, 12, 22, 23, 24)
-            fα[α] = -J₋
-            inv_fα[α] = -inv_J₋
-        end
-
-        # Here we calculate the gradient contribution from the entropy term and the Πα vector and ∂Παβ matrix
-        for i in 1:L, j in 1:L
-            q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-            E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-            inv_V = inv(V)
-            divided_difference!(sbs, Dmat, E)
-
-            @views for α in 1:3
-                ∂ID∂A!(∂ID∂ϕs[:, :, α], ∂ID∂ϕs[:, :, α+12], tmp, sbs, q, α)
-                ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], tmp, sbs, q, α)
-                ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], tmp, sbs, q, α)
-                ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], tmp, sbs, q, α)
-            end
-
-            @views for α in 1:24
-                # Gradient from entropy term
-                g[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
-                # Calculate the second derivatives of the quadratic free energy
-                divided_aux!(tmp, tmp2, Dmat, ∂ID∂ϕs[:, :, α], V, inv_V)
-                for β in 1:24
-                    ∂F2αβ[α, β] += real(tr(tmp * ∂ID∂ϕs[:, :, β])) / (4Nu)
-                end
-            end
-        end
-
-        # Now we add the contribution from the "correction" term L"⟨H - H_{MF}⟩_{MF}"
-        g2 = copy(g)
-        for α in 1:24
-            f += inv_fα[α] * g2[α]^2 / 12 - g2[α] * ϕ[α]
-            for β in 1:24
-                g[α] += ∂F2αβ[α, β] * (inv_fα[β]/6 * g2[β] - ϕ[β])
-                if β == α
-                    g[α] -= g2[β]
-                end
-            end
-        end
-
-        μs = sbs.mean_fields[13:15]
-        for α in 1:3
-            f += real(μs[α]) * (2S+1)
-        end
-        return f
-    else
-        @warn "The number of Schwinger bosons per site is not equal to 2S, returning Inf. Skipping this configuration..."
-        g .= Inf
-        f = Inf
-        return f
+    # The "interaction" strength
+    J₊ = J * (Δ + 1) / 2
+    J₋ = J * (Δ - 1) / 2
+    inv_J₊ = J₊ == 0 ? 0 : 1 / J₊
+    inv_J₋ = J₋ == 0 ? 0 : 1 / J₋
+    fα = zeros(24)
+    inv_fα = zeros(24)
+    for α in (1, 2, 3, 13, 14, 15)
+        fα[α] = -J₊
+        inv_fα[α] = -inv_J₊
+    end
+    for α in (4, 5, 6, 16, 17, 18)
+        fα[α] = J₊
+        inv_fα[α] = inv_J₊
+    end
+    for α in (7, 8, 9, 19, 20, 21)
+        fα[α] = J₋
+        inv_fα[α] = inv_J₋
+    end
+    for α in (10, 11, 12, 22, 23, 24)
+        fα[α] = -J₋
+        inv_fα[α] = -inv_J₋
     end
 
-end
+    @views for α in 1:3
+        ∂ID∂μ0!(∂ID∂ϕs[:, :, α+24], tmp, α)
+    end
 
-# The variational free energy objective function for Optim
-function fϕ!(sbs::SchwingerBosonSystem, ϕ)
-    # Make sure to set the mean fields to the `sbs` object
-    set_ϕ!(sbs, ϕ)
-
-    # Calculate the "temperature*entropy" term of the free energy
-    (; L, J, Δ, S, T) = sbs
-    Nu = L^2
-
-    # Buffers
-    D = zeros(ComplexF64, 12, 12)
-    V = zeros(ComplexF64, 12, 12)
-    g = zeros(24)
-
-    # Maximize the mean-field free energy to find the optimal chemical potential
-    # But we need a μ0 such that the dynamical matrix is positive definite
-    eigvals_min = Float64[]
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        eigval_min = eigmin(D)
-        push!(eigvals_min, eigval_min)
-    end
+        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        inv_V = inv(V)
+        divided_difference!(sbs, Dmat, E)
 
-    τ = max(0.0, -minimum(eigvals_min))
-    μ0s = sbs.mean_fields[13:15] .- (τ + T)
+        @views for α in 1:3
+            ∂ID∂A!(∂ID∂ϕs[:, :, α],   ∂ID∂ϕs[:, :, α+12], tmp, sbs, q, α)
+            ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], tmp, sbs, q, α)
+            ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], tmp, sbs, q, α)
+            ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], tmp, sbs, q, α)
+        end
 
-    optimize_μ!(sbs, μ0s)
-
-    f = 0.0
-    nα = zeros(3)
-
-    # Contribution from the "entropy" term
-    for i in 1:L, j in 1:L
-        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        try
-            E = bogoliubov!(V, D)
-            for n in 1:6
-                f += E[n] / (2Nu)
-                (T > 1e-8) && (f += real(T * log1p(-exp(-E[n]/T))) / Nu)
-                for α in 1:3
-                    nα[α] += ((abs2(V[combine_index(α,1), n]) + abs2(V[combine_index(α,2), n])) * bose(E[n], T) + (abs2(V[combine_index(α,1), n+6]) + abs2(V[combine_index(α,2), n+6]) * bose(E[n+6], T))) / Nu
-                end
+        # Calculate the first and second derivatives of the F2 (quadratic bosonic free energy)
+        @views for α in 1:27
+            # Gradient from entropy term
+            ∂F2α[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
+            # Calculate the second derivatives of the quadratic free energy
+            divided_aux!(tmp, tmp2, Dmat, ∂ID∂ϕs[:, :, α], V, inv_V)
+            for β in 1:27
+                ∂F2αβ[α, β] += real(tr(tmp * ∂ID∂ϕs[:, :, β])) / (4Nu)
             end
-        # If the dynamical matrix is not positive definite, return to Inf immediately
-        catch _
-            @warn "Dynamical matrix is not positive definite, returning Inf. Skipping this configuration..."
-            g .= Inf
-            f = Inf
-            return f
         end
     end
 
-    # Sometimes even though the dynamical matrix is positive definite, the number of Schwinger bosons per site may different from 2S, leading to unphysical mean-fields.
-    if prod(isapprox.(nα, 2S; atol=1e-4))
-        # The "normal" operation
-        # Buffers to calculate the gradient
-        P = zeros(ComplexF64, 12, 12)
-        tmp = zeros(ComplexF64, 12, 12)
-        # Buffers to hold the derivatives of the dynamical matrix
-        ∂ID∂ϕs = zeros(ComplexF64, 12, 12, 24)
-
-        # The "interaction" strength
-        J₊ = J * (Δ + 1) / 2
-        J₋ = J * (Δ - 1) / 2
-        inv_J₊ = J₊ == 0 ? 0 : 1 / J₊
-        inv_J₋ = J₋ == 0 ? 0 : 1 / J₋
-        fα = zeros(24)
-        inv_fα = zeros(24)
-        for α in (1, 2, 3, 13, 14, 15)
-            fα[α] = -J₊
-            inv_fα[α] = -inv_J₊
+    # Now we add the contribution from the "correction" term L"⟨H - H_{MF}⟩_{MF}"
+    for α in 1:24
+        f += inv_fα[α] * ∂F2α[α]^2 / 12 - ∂F2α[α] * ϕ[α]
+        for β in 1:24
+            g[α] += ∂F2αβ[α, β] * (inv_fα[β]/6 * ∂F2α[β] - ϕ[β])
         end
-        for α in (4, 5, 6, 16, 17, 18)
-            fα[α] = J₊
-            inv_fα[α] = inv_J₊
-        end
-        for α in (7, 8, 9, 19, 20, 21)
-            fα[α] = J₋
-            inv_fα[α] = inv_J₋
-        end
-        for α in (10, 11, 12, 22, 23, 24)
-            fα[α] = -J₋
-            inv_fα[α] = -inv_J₋
-        end
-
-        # Here we calculate the gradient contribution from the entropy term and the Πα vector and ∂Παβ matrix
-        for i in 1:L, j in 1:L
-            q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-            single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-
-            @views for α in 1:3
-                ∂ID∂A!(∂ID∂ϕs[:, :, α], ∂ID∂ϕs[:, :, α+12], tmp, sbs, q, α)
-                ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], tmp, sbs, q, α)
-                ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], tmp, sbs, q, α)
-                ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], tmp, sbs, q, α)
-            end
-
-            @views for α in 1:24
-                g[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
-            end
-        end
-
-        # Now we add the contribution from the "correction" term L"⟨H - H_{MF}⟩_{MF}"
-        for α in 1:24
-            f += inv_fα[α] * g[α]^2 / 12 - g[α] * ϕ[α]
-        end
-
-        μs = sbs.mean_fields[13:15]
-        for α in 1:3
-            f += real(μs[α]) * (2S+1)
-        end
-        return f
-    else
-        @warn "The number of Schwinger bosons per site is not equal to 2S, returning Inf. Skipping this configuration..."
-        g .= Inf
-        f = Inf
-        return f
     end
 
+    # Now we need to calculate μ and the gradient of f with respect to ϕ
+    μ0s = real(sbs.mean_fields[13:15])
+    for α in 1:3
+        f += μ0s[α] * (2S+1)
+        Δμ_den = -∂F2αβ[α+24, α+24]
+        Δμ_num = 0.0
+        for β in 1:24
+            Δμ_num += ∂F2αβ[α+24, β] * (inv_fα[β]/6 * ∂F2α[β] - ϕ[β])
+        end
+        Δμ = Δμ_num / Δμ_den
+        sbs.μs[α] = μ0s[α] + Δμ
+        for β in 1:24
+            g[β] += -∂F2αβ[β, α+24] * Δμ
+        end
+    end
+
+    return f
 end
