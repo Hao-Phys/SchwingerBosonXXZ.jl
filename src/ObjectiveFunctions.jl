@@ -201,17 +201,23 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
 
     # Now we need to calculate μ and the gradient of f with respect to ϕ
     μ0s = real(sbs.mean_fields[13:15])
+    κ0  = zeros(3, 3)
+    ∂ΔH∂μ0 = zeros(3)
     for α in 1:3
         f += μ0s[α] * (2S+1)
-        Δμ_den = -∂F2αβ[α+24, α+24]
-        Δμ_num = 0.0
-        for β in 1:24
-            Δμ_num += ∂F2αβ[α+24, β] * (inv_fα[β]/6 * ∂F2α[β] - ϕ[β])
+        for β in 1:3
+            κ0[α, β] += -∂F2αβ[α+24, β+24]
         end
-        Δμ = Δμ_num / Δμ_den
-        sbs.μs[α] = μ0s[α] + Δμ
         for β in 1:24
-            g[β] += -∂F2αβ[β, α+24] * Δμ
+            ∂ΔH∂μ0[α] += ∂F2αβ[α+24, β] * (inv_fα[β]/6 * ∂F2α[β] - ϕ[β])
+        end
+    end
+
+    sbs.Δμs .= pinv(κ0) * ∂ΔH∂μ0
+
+    for α in 1:24
+        for β in 1:3
+            g[α] += ∂F2αβ[α, β+24] * sbs.Δμs[β]
         end
     end
 

@@ -5,7 +5,7 @@ mutable struct SchwingerBosonSystem
     T :: Float64 # Temperature (in units of J)
     L :: Int # Linear size of the system, Nu = L²
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
-    μs :: Vector{Float64} # The chemical potentials (not the mean-field variables)
+    Δμs :: Vector{Float64} # The change in the chemical potentials (not the mean-field variables)
 end
 
 SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, zeros(ComplexF64, 15), zeros(3))
