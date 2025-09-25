@@ -25,10 +25,10 @@ function ∂ID∂A!(∂D∂A_re, ∂D∂A_im, tmp, sbs::SchwingerBosonSystem, q_
         ∂D21_re[i, j] += -0.5 * J₊ * sign * phase
         ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(phase)
 
-        ∂D21_im[i, j] += -0.5 * J₊ * sign * ( 1im) * phase
-        ∂D21_im[j, i] += -0.5 * J₊ * sign * ( 1im) * conj(phase)
-        ∂D12_im[i, j] += -0.5 * J₊ * sign * (-1im) * phase
-        ∂D12_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(phase)
+        ∂D12_im[i, j] += -0.5 * J₊ * sign * ( 1im) * phase
+        ∂D12_im[j, i] += -0.5 * J₊ * sign * ( 1im) * conj(phase)
+        ∂D21_im[i, j] += -0.5 * J₊ * sign * (-1im) * phase
+        ∂D21_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(phase)
     end
 
     mul!(tmp, Ĩ, ∂D∂A_re)
@@ -133,10 +133,10 @@ function ∂ID∂D!(∂D∂D_re, ∂D∂D_im, tmp, sbs::SchwingerBosonSystem, q_
         ∂D21_re[i, j] += -0.5 * J₋ * phase
         ∂D21_re[j, i] += -0.5 * J₋ * conj(phase)
 
-        ∂D21_im[i, j] += -0.5 * J₋ * ( 1im) * phase
-        ∂D21_im[j, i] += -0.5 * J₋ * ( 1im) * conj(phase)
-        ∂D12_im[i, j] += -0.5 * J₋ * (-1im) * phase
-        ∂D12_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase)
+        ∂D12_im[i, j] += -0.5 * J₋ * ( 1im) * phase
+        ∂D12_im[j, i] += -0.5 * J₋ * ( 1im) * conj(phase)
+        ∂D21_im[i, j] += -0.5 * J₋ * (-1im) * phase
+        ∂D21_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase)
     end
 
     mul!(tmp, Ĩ, ∂D∂D_re)
