@@ -35,3 +35,27 @@ function expectation_values(sbs::SchwingerBosonSystem)
 
     return expectations
 end
+
+function spin_expectations(sbs::SchwingerBosonSystem)
+    (; L, T, S) = sbs
+    Nu = L^2
+
+    S_exps = zeros(3, 3)
+    D = zeros(ComplexF64, 12, 12)
+    V = zeros(ComplexF64, 12, 12)
+
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        dynamical_matrix!(D, sbs, q)
+        E = bogoliubov!(V, D)
+        for α in 1:3, n in 1:6
+            spinor1 = [V[combine_index(α,1), n], V[combine_index(α,2), n]]
+            spinor2 = [V[combine_index(α,1), n+6], V[combine_index(α,2), n+6]]
+            for μ in 1:3
+                S_exps[μ, α] += S/(Nu) * real(spinor1' * σs[μ] * spinor1 * bose(E[n], T) + spinor2' * σs[μ] * spinor2 * bose(E[n+6], T))
+            end
+        end
+    end
+
+    return S_exps
+end

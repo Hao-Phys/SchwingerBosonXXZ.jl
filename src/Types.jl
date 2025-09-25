@@ -80,3 +80,5 @@ const recipvecs_reduce = Mat3([4π/3 2π/3 0; 0 2π/√3 0; 0 0 2π/10])
 const recipvecs_origin = Mat3([2π 0 0; 2π/√3 4π/√3 0; 0 0 2π/10])
 
 const Ĩ = Diagonal([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0])
+
+const σs = [SMatrix{2, 2}([0.0 1.0; 1.0 0.0]), SMatrix{2, 2}([0.0 -1im; 1im 0.0]), SMatrix{2, 2}([1.0 0.0; 0.0 -1.0])]
