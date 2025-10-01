@@ -23,9 +23,9 @@ function expectation_values(sbs::SchwingerBosonSystem)
             β = mod1(α+1, 3)
             As_exp[α] += link_phase(α, q)/(6Nu) * ( (conj(V[combine_index(α,1)+6, n]) * V[combine_index(β,2), n] - conj(V[combine_index(α,2)+6, n] * V[combine_index(β,1), n])) * bose(E[n], T)  + (conj(V[combine_index(α,1)+6, n+6]) * V[combine_index(β,2), n+6] - conj(V[combine_index(α,2)+6, n+6]) * V[combine_index(β,1), n+6]) * bose(E[n+6], T) )
 
-            Bs_exp[α] += link_phase(α, -q)/(6Nu) * ( (conj(V[combine_index(β,1), n]) * V[combine_index(α,1), n] + conj(V[combine_index(β,2), n] * V[combine_index(α,1), n])) * bose(E[n], T)  + (conj(V[combine_index(β,1), n+6]) * V[combine_index(α,1), n+6] + conj(V[combine_index(β,2), n+6]) * V[combine_index(α,2), n+6]) * bose(E[n+6], T) )
+            Bs_exp[α] += link_phase(α, -q)/(6Nu) * ( (conj(V[combine_index(β,1), n]) * V[combine_index(α,1), n] + conj(V[combine_index(β,2), n] * V[combine_index(α,2), n])) * bose(E[n], T)  + (conj(V[combine_index(β,1), n+6]) * V[combine_index(α,1), n+6] + conj(V[combine_index(β,2), n+6]) * V[combine_index(α,2), n+6]) * bose(E[n+6], T) )
 
-            Cs_exp[α] += link_phase(α, -q)/(6Nu) * ( (conj(V[combine_index(β,1), n]) * V[combine_index(α,1), n] - conj(V[combine_index(β,2), n] * V[combine_index(α,1), n])) * bose(E[n], T)  + (conj(V[combine_index(β,1), n+6]) * V[combine_index(α,1), n+6] - conj(V[combine_index(β,2), n+6]) * V[combine_index(α,2), n+6]) * bose(E[n+6], T) )
+            Cs_exp[α] += link_phase(α, -q)/(6Nu) * ( (conj(V[combine_index(β,1), n]) * V[combine_index(α,1), n] - conj(V[combine_index(β,2), n] * V[combine_index(α,2), n])) * bose(E[n], T)  + (conj(V[combine_index(β,1), n+6]) * V[combine_index(α,1), n+6] - conj(V[combine_index(β,2), n+6]) * V[combine_index(α,2), n+6]) * bose(E[n+6], T) )
 
             Ds_exp[α] += link_phase(α, q)/(6Nu) * ( (conj(V[combine_index(α,1)+6, n]) * V[combine_index(β,2), n] + conj(V[combine_index(α,2)+6, n] * V[combine_index(β,1), n])) * bose(E[n], T)  + (conj(V[combine_index(α,1)+6, n+6]) * V[combine_index(β,2), n+6] + conj(V[combine_index(α,2)+6, n+6]) * V[combine_index(β,1), n+6]) * bose(E[n+6], T) )
 
