@@ -10,6 +10,8 @@ mutable struct SchwingerBosonSystem
     Δμs :: Vector{Float64} # The change in the chemical potentials (not the mean-field variables)
 end
 
+SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, 0.0, zeros(3), zeros(ComplexF64, 15), zeros(3))
+
 SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int, h_SB::Float64, θs::Vector{Float64}) = SchwingerBosonSystem(J, Δ, S, T, L, h_SB, θs, zeros(ComplexF64, 15), zeros(3))
 
 function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
