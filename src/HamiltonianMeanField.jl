@@ -15,7 +15,7 @@ P_link(link::Int, σ, J₊, J₋, As, Ds) = -0.5 * (J₊*σ*As[link] + J₋*Ds[l
 
 function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3)
     D .= 0.0
-    (; J, Δ, mean_fields) = sbs
+    (; J, Δ, mean_fields, h_SB, θs, S) = sbs
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
 
@@ -33,6 +33,9 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
     D21 = view(D, 7:12, 1:6)
 
     for α in 1:3
+        @. D11[2α-1:2α, 2α-1:2α] += -S*h_SB*(sin(θs[α])*σs[1] + cos(θs[α]) * σs[3])
+        @. D22[2α-1:2α, 2α-1:2α] += -S*h_SB*(sin(θs[α])*σs[1] + cos(θs[α]) * σs[3])
+
         phase = link_phase(α, q_reshaped)
         for σ in 1:2
             sign = σ == 1 ? 1 : -1

@@ -15,7 +15,7 @@ include("GradientofHamiltonian.jl")
 include("ObjectiveFunctions.jl")
 
 include("ExpectationValues.jl")
-export expectation_values
+export expectation_values, spin_expectations
 include("SelfConsistentEqns.jl")
 export solve_self_consistent_mean_fields!
 

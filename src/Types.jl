@@ -4,11 +4,13 @@ mutable struct SchwingerBosonSystem
     S :: Float64 # Spin magnitude
     T :: Float64 # Temperature (in units of J)
     L :: Int # Linear size of the system, Nu = L²
+    h_SB :: Float64 # Small symmetry-breaking field
+    θs :: Vector{Float64} # Angle of the symmetry-breaking field
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
     Δμs :: Vector{Float64} # The change in the chemical potentials (not the mean-field variables)
 end
 
-SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, zeros(ComplexF64, 15), zeros(3))
+SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int, h_SB::Float64, θs::Vector{Float64}) = SchwingerBosonSystem(J, Δ, S, T, L, h_SB, θs, zeros(ComplexF64, 15), zeros(3))
 
 function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     (; J, Δ, S, T, L, mean_fields) = sbs
