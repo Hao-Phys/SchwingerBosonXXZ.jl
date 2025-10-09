@@ -22,4 +22,6 @@ export solve_self_consistent_mean_fields!
 include("Optimization.jl")
 export optimize_mean_fields!, optimize_μ!
 
+include("NewtonBacktracking.jl")
+
 end
