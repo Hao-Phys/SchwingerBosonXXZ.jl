@@ -1,3 +1,5 @@
+@inline log1mexp_modified(x) = (x < log(2)) ? log(-expm1(-x)) : log1p(-exp(-x))
+
 function free_energy_boson(sbs::SchwingerBosonSystem)
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
@@ -14,7 +16,7 @@ function free_energy_boson(sbs::SchwingerBosonSystem)
             E = bogoliubov!(V, D)
             for n in 1:6
                 f += E[n] / 2
-                (T > 1e-8) && (f += real(T * log1p(-exp(-E[n]/T))))
+                (T > 1e-8) && (f += real(T * log1mexp_modified(E[n]/T)))
             end
         catch e
             return Inf

@@ -104,7 +104,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     τ = max(0.0, -minimum(eigvals_min))
     μ0s = sbs.mean_fields[13:15] .- (τ + T)
 
-    optimize_μ0!(sbs, μ0s)
+    optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=false, iterations=100, extended_trace=false))
 
     f = 0.0
 
@@ -116,7 +116,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
             E = bogoliubov!(V, D)
             for n in 1:6
                 f += E[n] / (2Nu)
-                (T > 1e-8) && (f += real(T * log1p(-exp(-E[n]/T))) / Nu)
+                (T > 1e-8) && (f += real(T * log1mexp_modified(E[n]/T)) / Nu)
             end
         # If the dynamical matrix is not positive definite, return to Inf immediately
         catch _
