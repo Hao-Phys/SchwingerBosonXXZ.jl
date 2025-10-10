@@ -40,7 +40,7 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
         try
             E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
             for n in 1:6
-                f += E[n] / (2Nu)
+                f += -E[n] / (2Nu)
                 (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
             end
             for α in 1:3
@@ -111,7 +111,7 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
             divided_difference!(sbs, Dmat, E)
 
             for n in 1:6
-                f += E[n] / (2Nu)
+                f += -E[n] / (2Nu)
                 (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
             end
 
