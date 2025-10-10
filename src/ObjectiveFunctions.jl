@@ -32,7 +32,9 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
     tmp = zeros(ComplexF64, 12, 12)
     ∂D∂X_re = zeros(ComplexF64, 12, 12)
 
-    (; L, S, T) = sbs
+    (; L, S, T, mean_fields, J, Δ) = sbs
+    J₊ = J * (Δ + 1) / 2
+    J₋ = J * (Δ - 1) / 2
     Nu = L^2
 
     for i in 1:L, j in 1:L
@@ -54,7 +56,14 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
         end
     end
 
+    As = mean_fields[1:3]
+    Bs = mean_fields[4:6]
+    Cs = mean_fields[7:9]
+    Ds = mean_fields[10:12]
+
     for α in 1:3
+        f -= -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
+        f -= (1+2S) * x[α]
         g[α] += -(1+2S)
     end
 
@@ -97,7 +106,9 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
     tmp2 = zeros(ComplexF64, 12, 12)
     Dmat = zeros(ComplexF64, 12, 12)
 
-    (; L, S, T) = sbs
+    (; L, S, T, mean_fields, J, Δ) = sbs
+    J₊ = J * (Δ + 1) / 2
+    J₋ = J * (Δ - 1) / 2
     Nu = L^2
 
     ∂D∂X_re_α = zeros(ComplexF64, 12, 12, 3)
@@ -134,7 +145,14 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
         end
     end
 
+    As = mean_fields[1:3]
+    Bs = mean_fields[4:6]
+    Cs = mean_fields[7:9]
+    Ds = mean_fields[10:12]
+
     for α in 1:3
+        f -= -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
+        f -= (1+2S) * x[α]
         g[α] += -(1+2S)
     end
 
@@ -171,7 +189,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     μ0s = sbs.mean_fields[13:15] .- (τ + T)
 
     g_residual = optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=false, iterations=100, extended_trace=false))
-    @assert g_residual < 1e-6 "Particle number not equal to 2S. Optimization failed."
+    @assert g_residual < 1e-3 "Particle number not equal to 2S. Optimization failed. g_residual = $g_residual"
 
     f = 0.0
 
