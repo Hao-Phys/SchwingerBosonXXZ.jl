@@ -37,8 +37,12 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
 
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        try
-            E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        if any(isnan, E)
+            g .= Inf
+            f = Inf
+            return f
+        else
             for n in 1:6
                 f += -E[n] / (2Nu)
                 (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
@@ -47,11 +51,6 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
                 ∂ID∂μ0!(∂D∂X_re, tmp, α)
                 g[α] += -real(tr(P * ∂D∂X_re)) / Nu
             end
-        catch e
-            @warn "Dynamical matrix is not positive definite. Skipping this configuration..."
-            g .= Inf
-            f = Inf
-            return f
         end
     end
 
@@ -105,8 +104,14 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
 
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        try
-            E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+
+        if any(isnan, E)
+            g .= Inf
+            h .= Inf
+            f = Inf
+            return f
+        else
             inv_V = inv(V)
             divided_difference!(sbs, Dmat, E)
 
@@ -126,11 +131,6 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
                     h[α, β] += -real(tr(tmp * ∂D∂X_re_α[:, :, β])) / (4Nu)
                 end
             end
-        catch e
-            g .= Inf
-            h .= Inf
-            f = Inf
-            return f
         end
     end
 
