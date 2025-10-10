@@ -13,8 +13,9 @@ function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{Comple
         mul!(P, tmp, inv(V))
         return E
     catch e
+        # @warn "Dynamical matrix is not positive definite"
         P .= 0.0
-        E = ones(12) * Inf
+        E = fill(NaN, 12)
         return E
     end
 end
@@ -23,35 +24,41 @@ end
 function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
     set_μ0!(sbs, x)
 
-    # Calculate the gradient
+    # Initialize the buffers
     g .= 0.0
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
     P = zeros(ComplexF64, 12, 12)
     tmp = zeros(ComplexF64, 12, 12)
-
-    (; L, S) = sbs
-    Nu = L^2
-
     ∂D∂X_re = zeros(ComplexF64, 12, 12)
+
+    (; L, S, T) = sbs
+    Nu = L^2
 
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-        for α in 1:3
-            ∂ID∂μ0!(∂D∂X_re, tmp, α)
-            g[α] += -real(tr(P * ∂D∂X_re))
+        try
+            E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+            for n in 1:6
+                f += E[n] / (2Nu)
+                (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
+            end
+            for α in 1:3
+                ∂ID∂μ0!(∂D∂X_re, tmp, α)
+                g[α] += -real(tr(P * ∂D∂X_re)) / Nu
+            end
+        catch e
+            @warn "Dynamical matrix is not positive definite. Skipping this configuration..."
+            g .= Inf
+            f = Inf
+            return f
         end
     end
-
-    @. g /= Nu
 
     for α in 1:3
         g[α] += -(1+2S)
     end
 
-    # The function value
-    f = - free_energy_mean_field(sbs)
     return f
 end
 
@@ -91,27 +98,39 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
     tmp2 = zeros(ComplexF64, 12, 12)
     Dmat = zeros(ComplexF64, 12, 12)
 
-    (; L, S) = sbs
+    (; L, S, T) = sbs
     Nu = L^2
 
     ∂D∂X_re_α = zeros(ComplexF64, 12, 12, 3)
 
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-        inv_V = inv(V)
-        divided_difference!(sbs, Dmat, E)
+        try
+            E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+            inv_V = inv(V)
+            divided_difference!(sbs, Dmat, E)
 
-        @views for α in 1:3
-            ∂ID∂μ0!(∂D∂X_re_α[:, :, α], tmp, α)
-        end
-
-        @views for α in 1:3
-            g[α] += -real(tr(P * ∂D∂X_re_α[:, :, α])) / Nu
-            divided_aux!(tmp, tmp2, Dmat, ∂D∂X_re_α[:, :, α], V, inv_V)
-            for β in 1:3
-                h[α, β] += -real(tr(tmp * ∂D∂X_re_α[:, :, β])) / (4Nu)
+            for n in 1:6
+                f += E[n] / (2Nu)
+                (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
             end
+
+            @views for α in 1:3
+                ∂ID∂μ0!(∂D∂X_re_α[:, :, α], tmp, α)
+            end
+
+            @views for α in 1:3
+                g[α] += -real(tr(P * ∂D∂X_re_α[:, :, α])) / Nu
+                divided_aux!(tmp, tmp2, Dmat, ∂D∂X_re_α[:, :, α], V, inv_V)
+                for β in 1:3
+                    h[α, β] += -real(tr(tmp * ∂D∂X_re_α[:, :, β])) / (4Nu)
+                end
+            end
+        catch e
+            g .= Inf
+            h .= Inf
+            f = Inf
+            return f
         end
     end
 
@@ -119,8 +138,6 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
         g[α] += -(1+2S)
     end
 
-    # The function value
-    f = - free_energy_mean_field(sbs)
     return f
 end
 
@@ -153,7 +170,8 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     τ = max(0.0, -minimum(eigvals_min))
     μ0s = sbs.mean_fields[13:15] .- (τ + T)
 
-    optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=false, iterations=100, extended_trace=false))
+    g_residual = optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=false, iterations=100, extended_trace=false))
+    @assert g_residual < 1e-6 "Particle number not equal to 2S. Optimization failed."
 
     f = 0.0
 
