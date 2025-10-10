@@ -92,10 +92,18 @@ function divided_aux!(tmp, tmp2, Dmat, ∂D∂X, V, inv_V)
     mul!(tmp, tmp2, inv_V)
 end
 
+function fgh_μ0(sbs::SchwingerBosonSystem, x)
+    g = zeros(3)
+    h = zeros(3, 3)
+    f = fgh_μ0!(sbs::SchwingerBosonSystem, NaN, g, h, x)
+    return (; f, g, h)
+end
+
 function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
     set_μ0!(sbs, x)
 
     # Calculate the gradient
+    f = 0.0
     g .= 0.0
     h .= 0.0
 

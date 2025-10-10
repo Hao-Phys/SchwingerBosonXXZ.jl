@@ -13,8 +13,8 @@ function optimize_mean_fields!(sbs::SchwingerBosonSystem, ϕ0; algorithm=Optim.L
     return ret
 end
 
-function optimize_μ0_newton!(sbs::SchwingerBosonSystem, μ0; f_reltol=NaN, x_reltol=NaN, g_abstol=NaN, maxiters=20, armijo_c=1e-4, armijo_backoff=0.5, armijo_α_min=1e-4, show_trace=false)
+function optimize_μ0_newton!(sbs::SchwingerBosonSystem, μ0; kwargs...)
     fgh!(f, g, h, x) = fgh_μ0!(sbs, f, g, h, x)
-    ret = newton_with_backtracking(fgh!, μ0; f_reltol=f_reltol, x_reltol=x_reltol, g_abstol=g_abstol, maxiters=maxiters, armijo_c=armijo_c, armijo_backoff=armijo_backoff, armijo_α_min=armijo_α_min, show_trace=show_trace)
+    ret = newton_with_backtracking(fgh!, μ0; kwargs...)
     set_μ0!(sbs, ret)
 end
