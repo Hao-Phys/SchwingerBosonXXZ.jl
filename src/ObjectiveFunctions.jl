@@ -186,7 +186,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     end
 
     τ = max(0.0, -minimum(eigvals_min))
-    μ0s = sbs.mean_fields[13:15] .- (τ + T)
+    μ0s = real(sbs.mean_fields[13:15]) .- (τ + T)
 
     g_residual = optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=false, iterations=100, extended_trace=false))
     @assert g_residual < 1e-3 "Particle number not equal to 2S. Optimization failed. g_residual = $g_residual"
