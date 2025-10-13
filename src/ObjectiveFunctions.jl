@@ -41,7 +41,7 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
         if any(isnan, E)
-            g .= Inf
+            g .= NaN
             f = Inf
             return f
         else
@@ -118,8 +118,8 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
         E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
 
         if any(isnan, E)
-            g .= Inf
-            h .= Inf
+            g .= NaN
+            h .= NaN
             f = Inf
             return f
         else
@@ -206,7 +206,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
         # If the dynamical matrix is not positive definite, return to Inf immediately
         catch _
             @warn "Dynamical matrix is not positive definite, returning Inf. Skipping this configuration..."
-            g .= Inf
+            g .= NaN
             f = Inf
             return f
         end
