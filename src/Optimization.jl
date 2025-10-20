@@ -16,5 +16,6 @@ end
 function optimize_μ0_newton!(sbs::SchwingerBosonSystem, μ0; kwargs...)
     fgh!(f, g, h, x) = fgh_μ0!(sbs, f, g, h, x)
     ret = newton_with_backtracking(fgh!, μ0; kwargs...)
+    # ret = newton_selfconcordant_lm(fgh!, μ0; kwargs...)
     set_μ0!(sbs, ret)
 end

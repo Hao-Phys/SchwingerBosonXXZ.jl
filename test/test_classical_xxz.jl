@@ -3,7 +3,7 @@ using LinearAlgebra
 
 S = 0.5
 T = 1e-4
-Δ = 2.0
+Δ = 10.0
 h_SB = 0.0
 θ_ref = acos(Δ/(1+Δ))
 θs_classical = [π+θ_ref, 0, π-θ_ref]
@@ -34,7 +34,7 @@ for i in 1:3
 end
 
 # SchwingerBosonXXZ.optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=true, iterations=100, extended_trace=true))
-SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; g_abstol=1e-6, maxiters=100, show_trace=true)
+SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; g_abstol=1e-6, maxiters=100, armijo_α_min=1e-12, show_trace=true)
 
 
 ############
