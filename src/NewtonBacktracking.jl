@@ -12,20 +12,19 @@ function newton_with_backtracking(fgh!, x0; f_reltol=NaN, x_reltol=NaN, g_abstol
     f = fgh!(0.0, g, H, x)
     isfinite(f) || error("Initial guess is not feasible")
 
-    norm(g) < g_abstol && return x
+    maximum(abs, g) < g_abstol && return x
 
     function has_converged(x, candidate_x, f, candidate_f, g)
         return (!isnan(x_reltol) && isapprox(x, candidate_x; rtol=x_reltol)) ||
                (!isnan(f_reltol) && isapprox(f, candidate_f; rtol=f_reltol)) ||
-               (!isnan(g_abstol) && norm(g) < g_abstol)
+               (!isnan(g_abstol) && maximum(abs, g) < g_abstol)
     end
 
     for k in 1:maxiters
         # Newton direction p = H \ g.
         ldiv!(p, cholesky!(Hermitian(H)), g)
 
-        # To be used for Armijo backtracking.
-        g_dot_p = dot(g, p)
+        norm_g = norm(g)
 
         # Start with damped Newton step
         α = 1.0
@@ -35,16 +34,17 @@ function newton_with_backtracking(fgh!, x0; f_reltol=NaN, x_reltol=NaN, g_abstol
         # Candidate updates to x and f.
         @. candidate_x = x - α * p
         candidate_f = fgh!(0.0, g, H, candidate_x)
+        candidate_norm_g = norm(g)
 
         # Backtracking line search until Armijo condition is satisfied:
-        # f(candidate_x) ≤ f(x) - c * α * dot(g, p)
-        while candidate_f > f - armijo_c * α * g_dot_p
+        while candidate_norm_g ≥ norm_g
             has_converged(x, candidate_x, f, candidate_f, g) && return candidate_x
-            α < armijo_α_min && error("Failed to satisfy Armijo condition. Consider reducing armijo_α_min=$armijo_α_min or a tolerance parameter.")
+            α < armijo_α_min && error("Step size limit reached. Consider reducing armijo_α_min=$armijo_α_min or a tolerance parameter.")
 
             α *= armijo_backoff
             @. candidate_x = x - α * p
             candidate_f = fgh!(0.0, g, H, candidate_x)
+            candidate_norm_g = norm(g)
         end
 
         if show_trace
