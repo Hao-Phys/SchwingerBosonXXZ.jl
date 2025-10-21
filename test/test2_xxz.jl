@@ -14,4 +14,4 @@ SchwingerBosonXXZ.set_ϕ!(sbs, [0.48850421045919723, 0.48850421045919723, -0.208
 μ0s = [-50.0001, -50.0001, -50.0001]
 SchwingerBosonXXZ.set_μ0!(sbs, μ0s)
 
-SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; g_abstol=1e-8, maxiters=40, armijo_c=1e-4, armijo_backoff=0.5, armijo_α_min=1e-12, show_trace=true)
+@time SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; g_abstol=1e-12, maxiters=26, show_trace=true)
