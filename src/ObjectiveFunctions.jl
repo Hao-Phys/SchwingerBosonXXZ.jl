@@ -22,10 +22,11 @@ end
 
 # Objective function for the chemical potential optimization and its gradient
 function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
+    f = 0.0
     set_μ0!(sbs, x)
 
     # Initialize the buffers
-    g .= 0.0
+    isnothing(g) || (g .= 0.0)
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
     P = zeros(ComplexF64, 12, 12)
@@ -41,7 +42,7 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
         if any(isnan, E)
-            g .= Inf
+            isnothing(g) || (g .= NaN)
             f = Inf
             return f
         else
@@ -51,7 +52,7 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
             end
             for α in 1:3
                 ∂ID∂μ0!(∂D∂X_re, tmp, α)
-                g[α] += -real(tr(P * ∂D∂X_re)) / Nu
+                isnothing(g) || (g[α] += -real(tr(P * ∂D∂X_re)) / Nu)
             end
         end
     end
@@ -64,7 +65,7 @@ function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
     for α in 1:3
         f -= -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
         f -= (1+2S) * x[α]
-        g[α] += -(1+2S)
+        isnothing(g) || (g[α] += -(1+2S))
     end
 
     return f

@@ -2,8 +2,8 @@ using SchwingerBosonXXZ
 using LinearAlgebra
 
 S = 0.5
-T = 1e-1
-Δ = 2.0
+T = 1e-3
+Δ = 10.0
 L = 6
 h_SB = 0.0
 θ_ref = acos(Δ/(1+Δ))
@@ -14,6 +14,16 @@ SchwingerBosonXXZ.set_ϕ!(sbs, [8.750379094826187, 8.750379094826187, -5.6411955
 μ0s = [-322.50568428873504, -322.50568439207433, -322.50568428873504]
 SchwingerBosonXXZ.set_μ0!(sbs, μ0s)
 
-@time SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; decrement_tol=1e-20, armijo_α_min=1e-12, maxiters=200, show_trace=true, verbose=false)
+# @time SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; decrement_tol=1e-20, armijo_α_min=1e-12, maxiters=200, show_trace=true, verbose=false)
 
 # SchwingerBosonXXZ.optimize_μ0_newton!(sbs, μ0s; g_abstol=1e-6, maxiters=100, armijo_c=1e-4, armijo_backoff=0.5, armijo_α_min=1e-12, show_trace=true)
+
+
+#####
+
+using Optim
+
+algorithm = Optim.ConjugateGradient()
+g_abstol = 1e-8
+options = Optim.Options(; show_trace=true, iterations=1000, g_abstol, x_abstol=NaN, x_reltol=NaN, f_reltol=NaN, f_abstol=NaN)
+SchwingerBosonXXZ.optimize_μ0!(sbs, μ0s; algorithm, options)
