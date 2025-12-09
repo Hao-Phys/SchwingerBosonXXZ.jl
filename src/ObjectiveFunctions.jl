@@ -96,6 +96,7 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
     set_μ0!(sbs, x)
 
     # Calculate the gradient
+    f = 0.0
     g .= 0.0
     h .= 0.0
 
@@ -118,8 +119,8 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
         E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
 
         if any(isnan, E)
-            g .= NaN
-            h .= NaN
+            g .= Inf
+            h .= Inf
             f = Inf
             return f
         else
@@ -186,10 +187,9 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     end
 
     τ = max(0.0, -minimum(eigvals_min))
-    μ0s = real(sbs.mean_fields[13:15]) .- (τ + T)
+    μ0s = copy(real(sbs.mean_fields[13:15])) .- (τ + T)
 
-    g_residual = optimize_μ0!(sbs, μ0s; algorithm=Optim.GradientDescent(), options = Optim.Options(show_trace=false, iterations=100, extended_trace=false))
-    @assert g_residual < 1e-3 "Particle number not equal to 2S. Optimization failed. g_residual = $g_residual"
+    optimize_μ0_newton!(sbs, μ0s;  g_abstol=1e-6, maxiters=100, armijo_α_min=1e-12, show_trace=true)
 
     f = 0.0
 

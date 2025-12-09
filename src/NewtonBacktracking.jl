@@ -10,38 +10,41 @@ function newton_with_backtracking(fgh!, x0; f_reltol=NaN, x_reltol=NaN, g_abstol
 
     # Evaluate objective function f, gradient, and Hessian.
     f = fgh!(0.0, g, H, x)
-    norm(g) < g_abstol && return x
+    isfinite(f) || error("Initial guess is not feasible")
+
+    maximum(abs, g) < g_abstol && return x
 
     function has_converged(x, candidate_x, f, candidate_f, g)
         return (!isnan(x_reltol) && isapprox(x, candidate_x; rtol=x_reltol)) ||
                (!isnan(f_reltol) && isapprox(f, candidate_f; rtol=f_reltol)) ||
-               (!isnan(g_abstol) && norm(g) < g_abstol)
+               (!isnan(g_abstol) && maximum(abs, g) < g_abstol)
     end
 
     for k in 1:maxiters
-        # Newton direction p = H \ g. If H is not guaranteed positive definite,
-        # then use lu! instead of cholesky! decomposition.
+        # Newton direction p = H \ g.
         ldiv!(p, cholesky!(Hermitian(H)), g)
 
-        # To be used for Armijo backtracking.
-        g_dot_p = dot(g, p)
+        norm_g = norm(g)
 
-        # Start with full Newton step.
+        # Start with damped Newton step
         α = 1.0
+        # α  = 1 / (1 + sqrt(g_dot_p))
+        # println("Original damped α ", α)
 
         # Candidate updates to x and f.
         @. candidate_x = x - α * p
         candidate_f = fgh!(0.0, g, H, candidate_x)
+        candidate_norm_g = norm(g)
 
         # Backtracking line search until Armijo condition is satisfied:
-        # f(candidate_x) ≤ f(x) - c * α * dot(g, p)
-        while candidate_f > f - armijo_c * α * g_dot_p
+        while candidate_norm_g ≥ norm_g
             has_converged(x, candidate_x, f, candidate_f, g) && return candidate_x
-            α < armijo_α_min && error("Failed to satisfy Armijo condition. Consider reducing armijo_α_min=$armijo_α_min or a tolerance parameter.")
+            α < armijo_α_min && error("Step size limit reached. Consider reducing armijo_α_min=$armijo_α_min or a tolerance parameter.")
 
             α *= armijo_backoff
             @. candidate_x = x - α * p
             candidate_f = fgh!(0.0, g, H, candidate_x)
+            candidate_norm_g = norm(g)
         end
 
         if show_trace
@@ -57,8 +60,9 @@ function newton_with_backtracking(fgh!, x0; f_reltol=NaN, x_reltol=NaN, g_abstol
     error("Failed to converge in maxiters=$maxiters iterations.")
 end
 
+
 """
-  newton_selfconcordant_lm(fgh!, x0; f_reltol=NaN, x_reltol=NaN, g_abstol=NaN,
+    newton_selfconcordant_lm(fgh!, x0; f_reltol=NaN, x_reltol=NaN, g_abstol=NaN,
                              maxiters=50, max_lm_iters=30, lm_growth=2.0,
                              show_trace=false)
 
@@ -111,6 +115,7 @@ function newton_selfconcordant_lm(fgh!, x0;
         gp = max(dot(g, p), zero(T))           # clamp for numerical safety
         λ  = sqrt(gp)
         α  = one(T) / (one(T) + λ)
+        @show α
 
         @. cand_x = x - α * p
         cand_f = fgh!(zero(T), g_tmp, H_tmp, cand_x)
@@ -142,7 +147,9 @@ function newton_selfconcordant_lm(fgh!, x0;
             @. cand_x = x - p
             cand_f = fgh!(zero(T), g_tmp, H_tmp, cand_x)
 
-            prog_lm = isfinite(cand_f) && ((isfinite(f) && cand_f <= f) || (norm(g_tmp) < norm(g)))
+            # prog_lm = isfinite(cand_f) && ((isfinite(f) && cand_f <= f) || (norm(g_tmp) < norm(g)))
+            prog_lm = isfinite(cand_f) && (norm(g_tmp) < norm(g))
+
             if isfinite(cand_f) && (prog_lm || has_converged(x, cand_x, f, cand_f, g_tmp))
                 x .= cand_x; f = cand_f
                 copyto!(g, g_tmp); copyto!(H, H_tmp)
