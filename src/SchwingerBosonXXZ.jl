@@ -23,5 +23,6 @@ include("Optimization.jl")
 export optimize_mean_fields!, optimize_μ!
 
 include("NewtonBacktracking.jl")
+include("CondensedSectorTreatment.jl")
 
 end
