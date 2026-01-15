@@ -10,7 +10,6 @@ Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
-LinearAlgebra = "1.11.0"
 NLsolve = "4.5.1"
 Optim = "1.13.2"
 StaticArrays = "1.9.13"
