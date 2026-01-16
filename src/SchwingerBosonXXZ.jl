@@ -24,5 +24,6 @@ export optimize_mean_fields!, optimize_μ!
 
 include("NewtonBacktracking.jl")
 include("CondensedSectorTreatment.jl")
+export solve_self_consistent_mean_fields_condensed!, expectation_values_condensed, spin_expectations_condensed
 
 end

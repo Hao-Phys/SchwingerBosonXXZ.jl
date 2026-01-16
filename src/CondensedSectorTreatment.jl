@@ -323,3 +323,45 @@ function expectation_values_condensed(sbs::SchwingerBosonSystem, ϵ, δ)
 
     return f
 end
+
+function ∂ID∂S!(∂D∂S_re, tmp, α::Int, μ::Int)
+    ∂D∂S_re .= 0.0
+    index = 2α-1
+    view1 = view(∂D∂S_re, index:index+1, index:index+1)
+    view1 .= 0.5 * σs[μ]
+    view2 = view(∂D∂S_re, index+6:index+7, index+6:index+7)
+    view2 .= 0.5 * σs[μ]
+    mul!(tmp, Ĩ, ∂D∂S_re)
+    copyto!(∂D∂S_re, tmp)
+end
+
+function spin_expectations_condensed(sbs::SchwingerBosonSystem, ϵ::Float64, δ::Float64)
+    μ0 = real.(copy(sbs.mean_fields[13:15]))
+    optimize_μ0_f_tilde!(sbs, μ0, ϵ, δ; algorithm=Optim.NelderMead(), options=Optim.Options(iterations=500, g_tol=1e-12))
+
+    (; L) = sbs
+    Nu = L^2
+
+    # Buffers
+    D = zeros(ComplexF64, 12, 12)
+    V = zeros(ComplexF64, 12, 12)
+
+    P = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
+    ∂D∂S_re = zeros(ComplexF64, 12, 12, 3, 3)
+    @views for α in 1:3, μ in 1:3
+        ∂ID∂S!(∂D∂S_re[:, :, α, μ], tmp, α, μ)
+    end
+
+    S_exps = zeros(3, 3)
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        modified_single_particle_density_matrix!(P, D, V, tmp, sbs, q, ϵ)
+
+        @views for α in 1:3, μ in 1:3
+            S_exps[μ, α] += real(tr(P * ∂D∂S_re[:, :, α, μ])) / Nu
+        end
+    end
+
+    return S_exps
+end
