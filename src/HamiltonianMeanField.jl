@@ -11,7 +11,7 @@ function link_phase(link::Int, q_reshaped::Vec3)
 end
 
 Q_link(link::Int, σ, J₊, J₋, Bs, Cs, α_dcoup) =  0.5 * (J₊*2α_dcoup*Bs[link] + σ*J₋*Cs[link])
-P_link(link::Int, σ, J₊, J₋, As, Ds, α_dcoup) = -0.5 * (J₊*(1-2α_dcoup)*σ*As[link] + J₋*Ds[link])
+P_link(link::Int, σ, J₊, J₋, As, Ds, α_dcoup) = -0.5 * (J₊*2*(1-α_dcoup)*σ*As[link] + J₋*Ds[link])
 
 function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3)
     D .= 0.0
