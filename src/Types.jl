@@ -8,16 +8,17 @@ mutable struct SchwingerBosonSystem
     θs :: Vector{Float64} # Angle of the symmetry-breaking field
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
     Δμs :: Vector{Float64} # The change in the chemical potentials (not the mean-field variables)
+    α_dcoup :: Float64 # Continuous parameter for the mean-field decoupling scheme, default 0.5
 end
 
-SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, 0.0, zeros(3), zeros(ComplexF64, 15), zeros(3))
+SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, 0.0, zeros(3), zeros(ComplexF64, 15), zeros(3), 0.5)
 
-SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int, h_SB::Float64, θs::Vector{Float64}) = SchwingerBosonSystem(J, Δ, S, T, L, h_SB, θs, zeros(ComplexF64, 15), zeros(3))
+SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int, h_SB::Float64, θs::Vector{Float64}) = SchwingerBosonSystem(J, Δ, S, T, L, h_SB, θs, zeros(ComplexF64, 15), zeros(3), 0.5)
 
 function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
-    (; J, Δ, S, T, L, mean_fields) = sbs
+    (; J, Δ, S, T, L, mean_fields, α_dcoup) = sbs
     printstyled(io, "SchwingerBosonSystem", "\n"; bold=true, color=:underline)
-    println(io, "J = ", J, " Δ = ", Δ, " S = ", S, " T = ", T, " L = ", L)
+    println(io, "J = ", J, " Δ = ", Δ, " S = ", S, " T = ", T, " L = ", L, " α_dcoup = ", α_dcoup)
     println("Mean field values: ")
     for i in 1:3
         println("A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])

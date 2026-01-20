@@ -10,12 +10,12 @@ function link_phase(link::Int, q_reshaped::Vec3)
     end
 end
 
-Q_link(link::Int, σ, J₊, J₋, Bs, Cs) =  0.5 * (J₊*Bs[link] + σ*J₋*Cs[link])
-P_link(link::Int, σ, J₊, J₋, As, Ds) = -0.5 * (J₊*σ*As[link] + J₋*Ds[link])
+Q_link(link::Int, σ, J₊, J₋, Bs, Cs, α_dcoup) =  0.5 * (J₊*2α_dcoup*Bs[link] + σ*J₋*Cs[link])
+P_link(link::Int, σ, J₊, J₋, As, Ds, α_dcoup) = -0.5 * (J₊*(1-2α_dcoup)*σ*As[link] + J₋*Ds[link])
 
 function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3)
     D .= 0.0
-    (; J, Δ, mean_fields, h_SB, θs, S) = sbs
+    (; J, Δ, mean_fields, h_SB, θs, S, α_dcoup) = sbs
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
 
@@ -44,18 +44,18 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
 
             # Below we follow the convention in Sunny to define the dynamical matrix
             # D11 and D22
-            D11[i, j] += Q_link(α, sign, J₊, J₋, Bs, Cs) * phase
-            D11[j, i] += conj(Q_link(α, sign, J₊, J₋, Bs, Cs)) * conj(phase)
-            D22[i, j] += conj(Q_link(α, sign, J₊, J₋, Bs, Cs)) * phase
-            D22[j, i] += Q_link(α, sign, J₊, J₋, Bs, Cs) * conj(phase)
+            D11[i, j] += Q_link(α, sign, J₊, J₋, Bs, Cs, α_dcoup) * phase
+            D11[j, i] += conj(Q_link(α, sign, J₊, J₋, Bs, Cs, α_dcoup)) * conj(phase)
+            D22[i, j] += conj(Q_link(α, sign, J₊, J₋, Bs, Cs, α_dcoup)) * phase
+            D22[j, i] += Q_link(α, sign, J₊, J₋, Bs, Cs, α_dcoup) * conj(phase)
 
             # D21 and D12
             increment = σ == 1 ? 3 : 1
             j = mod1(i+increment, 6)
-            D12[i, j] += P_link(α, sign, J₊, J₋, As, Ds) * phase
-            D12[j, i] += P_link(α, sign, J₊, J₋, As, Ds) * conj(phase)
-            D21[i, j] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * phase
-            D21[j, i] += conj(P_link(α, sign, J₊, J₋, As, Ds)) * conj(phase)
+            D12[i, j] += P_link(α, sign, J₊, J₋, As, Ds, α_dcoup) * phase
+            D12[j, i] += P_link(α, sign, J₊, J₋, As, Ds, α_dcoup) * conj(phase)
+            D21[i, j] += conj(P_link(α, sign, J₊, J₋, As, Ds, α_dcoup)) * phase
+            D21[j, i] += conj(P_link(α, sign, J₊, J₋, As, Ds, α_dcoup)) * conj(phase)
 
             # Diagonal terms
             D11[i, i] += -real(μ0s[α])
