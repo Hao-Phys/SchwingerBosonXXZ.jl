@@ -85,7 +85,7 @@ function search_for_condensation_shift!(sbs::SchwingerBosonSystem, y, ϵ, δ)
                 iter += 1
             end
             push!(c_shifts, c)
-            (iter == max_iter) && (@warn "Max iterations reached when searching for condensation c shift at q = $q")
+            # (iter == max_iter) && (@warn "Max iterations reached when searching for condensation c shift at q = $q")
         else
             c = 0.0
             push!(c_shifts, c)
@@ -325,13 +325,14 @@ function expectation_values_condensed(sbs::SchwingerBosonSystem, ϵ, δ)
     return f
 end
 
-function ∂ID∂S!(∂D∂S_re, tmp, α::Int, μ::Int)
+function ∂ID∂S!(∂D∂S_re, tmp, α::Int, μ::Int, sbs::SchwingerBosonSystem)
+    S = sbs.S
     ∂D∂S_re .= 0.0
     index = 2α-1
     view1 = view(∂D∂S_re, index:index+1, index:index+1)
-    view1 .= 0.5 * σs[μ]
+    view1 .= S * σs[μ]
     view2 = view(∂D∂S_re, index+6:index+7, index+6:index+7)
-    view2 .= 0.5 * σs[μ]
+    view2 .= S * σs[μ]
     mul!(tmp, Ĩ, ∂D∂S_re)
     copyto!(∂D∂S_re, tmp)
 end
@@ -351,7 +352,7 @@ function spin_expectations_condensed(sbs::SchwingerBosonSystem, ϵ::Float64, δ:
     tmp = zeros(ComplexF64, 12, 12)
     ∂D∂S_re = zeros(ComplexF64, 12, 12, 3, 3)
     @views for α in 1:3, μ in 1:3
-        ∂ID∂S!(∂D∂S_re[:, :, α, μ], tmp, α, μ)
+        ∂ID∂S!(∂D∂S_re[:, :, α, μ], tmp, α, μ, sbs)
     end
 
     S_exps = zeros(3, 3)
