@@ -93,15 +93,15 @@ function ∂ID∂C!(∂D∂C_re, ∂D∂C_im, tmp, sbs::SchwingerBosonSystem, q_
 
         # Below we follow the convention in Sunny to define the dynamical matrix
         # D11 and D22
-        ∂D11_re[i, j] += 0.5 * J₋ * sign * phase * (1+α_dcoups[2])
-        ∂D11_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1+α_dcoups[2])
-        ∂D22_re[i, j] += 0.5 * J₋ * sign * phase * (1+α_dcoups[2])
-        ∂D22_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1+α_dcoups[2])
+        ∂D11_re[i, j] += 0.5 * J₋ * sign * phase * (1-α_dcoups[2])
+        ∂D11_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2])
+        ∂D22_re[i, j] += 0.5 * J₋ * sign * phase * (1-α_dcoups[2])
+        ∂D22_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2])
 
-        ∂D11_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase * (1+α_dcoups[2])
-        ∂D11_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase) * (1+α_dcoups[2])
-        ∂D22_im[i, j] += 0.5 * J₋ * sign * (-1im) * phase * (1+α_dcoups[2])
-        ∂D22_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(phase) * (1+α_dcoups[2])
+        ∂D11_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase * (1-α_dcoups[2])
+        ∂D11_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase) * (1-α_dcoups[2])
+        ∂D22_im[i, j] += 0.5 * J₋ * sign * (-1im) * phase * (1-α_dcoups[2])
+        ∂D22_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(phase) * (1-α_dcoups[2])
     end
 
     mul!(tmp, Ĩ, ∂D∂C_re)
@@ -128,15 +128,15 @@ function ∂ID∂D!(∂D∂D_re, ∂D∂D_im, tmp, sbs::SchwingerBosonSystem, q_
         increment = σ == 1 ? 3 : 1
         j = mod1(i+increment, 6)
 
-        ∂D12_re[i, j] += -0.5 * J₋ * phase * (1-α_dcoups[2])
-        ∂D12_re[j, i] += -0.5 * J₋ * conj(phase) * (1-α_dcoups[2])
-        ∂D21_re[i, j] += -0.5 * J₋ * phase * (1-α_dcoups[2])
-        ∂D21_re[j, i] += -0.5 * J₋ * conj(phase) * (1-α_dcoups[2])
+        ∂D12_re[i, j] += -0.5 * J₋ * phase * (1+α_dcoups[2])
+        ∂D12_re[j, i] += -0.5 * J₋ * conj(phase) * (1+α_dcoups[2])
+        ∂D21_re[i, j] += -0.5 * J₋ * phase * (1+α_dcoups[2])
+        ∂D21_re[j, i] += -0.5 * J₋ * conj(phase) * (1+α_dcoups[2])
 
-        ∂D12_im[i, j] += -0.5 * J₋ * ( 1im) * phase * (1-α_dcoups[2])
-        ∂D12_im[j, i] += -0.5 * J₋ * ( 1im) * conj(phase) * (1-α_dcoups[2])
-        ∂D21_im[i, j] += -0.5 * J₋ * (-1im) * phase * (1-α_dcoups[2])
-        ∂D21_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase) * (1-α_dcoups[2])
+        ∂D12_im[i, j] += -0.5 * J₋ * ( 1im) * phase * (1+α_dcoups[2])
+        ∂D12_im[j, i] += -0.5 * J₋ * ( 1im) * conj(phase) * (1+α_dcoups[2])
+        ∂D21_im[i, j] += -0.5 * J₋ * (-1im) * phase * (1+α_dcoups[2])
+        ∂D21_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase) * (1+α_dcoups[2])
     end
 
     mul!(tmp, Ĩ, ∂D∂D_re)
