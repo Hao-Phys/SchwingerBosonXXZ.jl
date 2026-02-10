@@ -28,4 +28,5 @@ function solve_self_consistent_mean_fields!(sbs::SchwingerBosonSystem, x0::Vecto
     !converged(ret) && @warn "Self-consitent equations converged to a solution with residual $(ret.residual_norm)"
     best_mean_fields = [ret.zero; sbs.mean_fields[13:15]]
     set_mean_fields!(sbs, best_mean_fields)
+    return ret.residual_norm
 end
