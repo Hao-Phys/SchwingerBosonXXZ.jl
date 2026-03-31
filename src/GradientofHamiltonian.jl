@@ -1,157 +1,114 @@
-# Below, we calculate the gradient of Ĩ * D with respect to the mean fields. 
-
-# Note that ∂D/∂[Re(χ)] = ∂D/∂χ + ∂D/∂conj(χ), and ∂D/∂[Im(χ)] = 1im * (∂D/∂χ - ∂D/∂conj(χ)).
-function ∂ID∂A!(∂D∂A_re, ∂D∂A_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
-    ∂D∂A_re .= 0.0
-    ∂D∂A_im .= 0.0
-
+# ── Conjugate Wirtinger derivatives ∂(ĨD)/∂conj(O_α) ────────────────────────
+#
+# For optimization over complex mean fields O ∈ {A, B, C, D}, the relevant
+# gradient for a real-valued objective F is the conjugate Wirtinger derivative:
+#
+#   ∂F/∂conj(O) = Tr[P_H * ∂(ĨD)/∂conj(O)]   .
+#
+# Therefore the steepest-descent update of O uses
+#
+#   ΔO ∝ - ∂F/∂conj(O).
+#
+# Here Ĩ = diagm(vcat(ones(6), -ones(6))) multiplies D from the left, so all
+# rows in the lower block (7:12) pick up an extra minus sign.
+#
+# Block structure implied by dynamical_matrix!:
+#   A,D : O enters D12, but conj(O) enters D21
+#   B,C : O enters D11[i,j] and D22[j+6,i+6]
+#         conj(O) enters D11[j,i] and D22[i+6,j+6]
+function ∂ID∂conjA_w!(out::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q::Vec3, α::Int)
+    out .= 0.0
     (; J, Δ, α_dcoups) = sbs
     J₊ = J * (Δ + 1) / 2
+    phase = link_phase(α, q)
 
-    ∂D12_re = view(∂D∂A_re, 1:6, 7:12)
-    ∂D21_re = view(∂D∂A_re, 7:12, 1:6)
-    ∂D12_im = view(∂D∂A_im, 1:6, 7:12)
-    ∂D21_im = view(∂D∂A_im, 7:12, 1:6)
-
-    phase = link_phase(α, q_reshaped)
     for σ in 1:2
-        sign = σ == 1 ? 1 : -1
-        i = (α-1) * 2 + σ
+        sign_σ = σ == 1 ? 1 : -1
+        i = (α - 1) * 2 + σ
         increment = σ == 1 ? 3 : 1
-        j = mod1(i+increment, 6)
+        j = mod1(i + increment, 6)
 
-        ∂D12_re[i, j] += -0.5 * J₊ * sign * phase * (1+α_dcoups[1])
-        ∂D12_re[j, i] += -0.5 * J₊ * sign * conj(phase) * (1+α_dcoups[1])
-        ∂D21_re[i, j] += -0.5 * J₊ * sign * phase * (1+α_dcoups[1])
-        ∂D21_re[j, i] += -0.5 * J₊ * sign * conj(phase) * (1+α_dcoups[1])
+        # conj(P_link) = -0.5 * J₊ * sign_σ * (1 + α_dcoups[1]) * conj(A[α]) + ...
+        c = -0.5 * J₊ * sign_σ * (1 + α_dcoups[1])
 
-        ∂D12_im[i, j] += -0.5 * J₊ * sign * ( 1im) * phase * (1+α_dcoups[1])
-        ∂D12_im[j, i] += -0.5 * J₊ * sign * ( 1im) * conj(phase) * (1+α_dcoups[1])
-        ∂D21_im[i, j] += -0.5 * J₊ * sign * (-1im) * phase * (1+α_dcoups[1])
-        ∂D21_im[j, i] += -0.5 * J₊ * sign * (-1im) * conj(phase) * (1+α_dcoups[1])
+        # D21 block before multiplying by Ĩ:
+        #   D21[i,j] += conj(P_link) * phase
+        #   D21[j,i] += conj(P_link) * conj(phase)
+        #
+        # Since rows 7:12 carry a minus sign under Ĩ, these contributions pick up -1.
+        out[i+6, j] -= c * phase
+        out[j+6, i] -= c * conj(phase)
     end
-
-    mul!(tmp, Ĩ, ∂D∂A_re)
-    copyto!(∂D∂A_re, tmp)
-    mul!(tmp, Ĩ, ∂D∂A_im)
-    copyto!(∂D∂A_im, tmp)
 end
 
-function ∂ID∂B!(∂D∂B_re, ∂D∂B_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
-    ∂D∂B_re .= 0.0
-    ∂D∂B_im .= 0.0
-
+function ∂ID∂conjB_w!(out::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q::Vec3, α::Int)
+    out .= 0.0
     (; J, Δ, α_dcoups) = sbs
     J₊ = J * (Δ + 1) / 2
+    phase = link_phase(α, q)
 
-    ∂D11_re = view(∂D∂B_re, 1:6, 1:6)
-    ∂D22_re = view(∂D∂B_re, 7:12, 7:12)
-    ∂D11_im = view(∂D∂B_im, 1:6, 1:6)
-    ∂D22_im = view(∂D∂B_im, 7:12, 7:12)
-
-    phase = link_phase(α, q_reshaped)
     for σ in 1:2
-        i = (α-1) * 2 + σ
-        j = mod1(i+2, 6)
+        i = (α - 1) * 2 + σ
+        j = mod1(i + 2, 6)
 
-        # Below we follow the convention in Sunny to define the dynamical matrix
-        # D11 and D22
-        ∂D11_re[i, j] += 0.5 * J₊ * phase * (1-α_dcoups[1])
-        ∂D11_re[j, i] += 0.5 * J₊ * conj(phase) * (1-α_dcoups[1])
-        ∂D22_re[i, j] += 0.5 * J₊ * phase * (1-α_dcoups[1])
-        ∂D22_re[j, i] += 0.5 * J₊ * conj(phase) * (1-α_dcoups[1])
+        c = 0.5 * J₊ * (1 - α_dcoups[1])
 
-        ∂D11_im[i, j] += 0.5 * J₊ * ( 1im) * phase * (1-α_dcoups[1])
-        ∂D11_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase) * (1-α_dcoups[1])
-        ∂D22_im[i, j] += 0.5 * J₊ * (-1im) * phase * (1-α_dcoups[1])
-        ∂D22_im[j, i] += 0.5 * J₊ * ( 1im) * conj(phase) * (1-α_dcoups[1])
+        # conj(Q_link) = 0.5 * J₊ * (1 - α_dcoups[1]) * conj(B[α]) + ...
+        # conj(Q_link) enters:
+        #   D11[j,i] += conj(Q_link) * conj(phase)
+        #   D22[i,j] += conj(Q_link) * phase
+        #
+        # D11 rows are in the + block, D22 rows are in the - block.
+        out[j, i] += c * conj(phase)
+        out[i+6, j+6] -= c * phase
     end
-
-    mul!(tmp, Ĩ, ∂D∂B_re)
-    copyto!(∂D∂B_re, tmp)
-    mul!(tmp, Ĩ, ∂D∂B_im)
-    copyto!(∂D∂B_im, tmp)
 end
 
-function ∂ID∂C!(∂D∂C_re, ∂D∂C_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
-    ∂D∂C_re .= 0.0
-    ∂D∂C_im .= 0.0
-
+function ∂ID∂conjC_w!(out::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q::Vec3, α::Int)
+    out .= 0.0
     (; J, Δ, α_dcoups) = sbs
     J₋ = J * (Δ - 1) / 2
+    phase = link_phase(α, q)
 
-    ∂D11_re = view(∂D∂C_re, 1:6, 1:6)
-    ∂D22_re = view(∂D∂C_re, 7:12, 7:12)
-    ∂D11_im = view(∂D∂C_im, 1:6, 1:6)
-    ∂D22_im = view(∂D∂C_im, 7:12, 7:12)
-
-    phase = link_phase(α, q_reshaped)
     for σ in 1:2
-        sign = σ == 1 ? 1 : -1
-        i = (α-1) * 2 + σ
-        j = mod1(i+2, 6)
+        sign_σ = σ == 1 ? 1 : -1
+        i = (α - 1) * 2 + σ
+        j = mod1(i + 2, 6)
 
-        # Below we follow the convention in Sunny to define the dynamical matrix
-        # D11 and D22
-        ∂D11_re[i, j] += 0.5 * J₋ * sign * phase * (1-α_dcoups[2])
-        ∂D11_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2])
-        ∂D22_re[i, j] += 0.5 * J₋ * sign * phase * (1-α_dcoups[2])
-        ∂D22_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2])
-
-        ∂D11_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase * (1-α_dcoups[2])
-        ∂D11_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase) * (1-α_dcoups[2])
-        ∂D22_im[i, j] += 0.5 * J₋ * sign * (-1im) * phase * (1-α_dcoups[2])
-        ∂D22_im[j, i] += 0.5 * J₋ * sign * ( 1im) * conj(phase) * (1-α_dcoups[2])
+        # conj(Q_link) = 0.5 * J₋ * sign_σ * (1 - α_dcoups[2]) * conj(C[α]) + ...
+        c = 0.5 * J₋ * sign_σ * (1 - α_dcoups[2])
+        # conj(Q_link) contribution, same slot structure as B
+        out[j, i] += c * conj(phase)
+        out[i+6, j+6] -= c * phase
     end
-
-    mul!(tmp, Ĩ, ∂D∂C_re)
-    copyto!(∂D∂C_re, tmp)
-    mul!(tmp, Ĩ, ∂D∂C_im)
-    copyto!(∂D∂C_im, tmp)
 end
 
-function ∂ID∂D!(∂D∂D_re, ∂D∂D_im, tmp, sbs::SchwingerBosonSystem, q_reshaped::Vec3, α::Int)
-    ∂D∂D_re .= 0.0
-    ∂D∂D_im .= 0.0
-
+function ∂ID∂conjD_w!(out::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q::Vec3, α::Int)
+    out .= 0.0
     (; J, Δ, α_dcoups) = sbs
     J₋ = J * (Δ - 1) / 2
+    phase = link_phase(α, q)
 
-    ∂D21_re = view(∂D∂D_re, 7:12, 1:6)
-    ∂D12_re = view(∂D∂D_re, 1:6, 7:12)
-    ∂D21_im = view(∂D∂D_im, 7:12, 1:6)
-    ∂D12_im = view(∂D∂D_im, 1:6, 7:12)
-
-    phase = link_phase(α, q_reshaped)
     for σ in 1:2
-        i = (α-1) * 2 + σ
+        i = (α - 1) * 2 + σ
         increment = σ == 1 ? 3 : 1
-        j = mod1(i+increment, 6)
+        j = mod1(i + increment, 6)
 
-        ∂D12_re[i, j] += -0.5 * J₋ * phase * (1+α_dcoups[2])
-        ∂D12_re[j, i] += -0.5 * J₋ * conj(phase) * (1+α_dcoups[2])
-        ∂D21_re[i, j] += -0.5 * J₋ * phase * (1+α_dcoups[2])
-        ∂D21_re[j, i] += -0.5 * J₋ * conj(phase) * (1+α_dcoups[2])
+        # conj(P_link) = -0.5 * J₋ * (1 + α_dcoups[2]) * conj(D[α]) + ...
+        c = -0.5 * J₋ * (1 + α_dcoups[2])
 
-        ∂D12_im[i, j] += -0.5 * J₋ * ( 1im) * phase * (1+α_dcoups[2])
-        ∂D12_im[j, i] += -0.5 * J₋ * ( 1im) * conj(phase) * (1+α_dcoups[2])
-        ∂D21_im[i, j] += -0.5 * J₋ * (-1im) * phase * (1+α_dcoups[2])
-        ∂D21_im[j, i] += -0.5 * J₋ * (-1im) * conj(phase) * (1+α_dcoups[2])
+        # conj(P_link) contribution in D21, with lower-block minus sign from Ĩ
+        out[i+6, j] -= c * phase
+        out[j+6, i] -= c * conj(phase)
     end
-
-    mul!(tmp, Ĩ, ∂D∂D_re)
-    copyto!(∂D∂D_re, tmp)
-    mul!(tmp, Ĩ, ∂D∂D_im)
-    copyto!(∂D∂D_im, tmp)
 end
 
-function ∂ID∂μ0!(∂D∂μ0, tmp, α::Int)
-    ∂D∂μ0 .= 0.0
+# Chemical potential μ₀ (real) hits the diagonal of D11 and D22, with a negative sign by Ĩ:
+function ∂ID∂μ0!(out, α::Int)
+    out .= 0.0
     for σ in 1:2
         i = (α-1) * 2 + σ
-        ∂D∂μ0[i, i] -= 1.0
-        ∂D∂μ0[i+6, i+6] -= 1.0
+        out[i, i] -= 1.0
+        out[i+6, i+6] += 1.0
     end
-    mul!(tmp, Ĩ, ∂D∂μ0)
-    copyto!(∂D∂μ0, tmp)
 end

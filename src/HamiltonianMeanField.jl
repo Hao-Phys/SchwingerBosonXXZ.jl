@@ -19,7 +19,11 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
 
-    # Extracting mean fields
+    # Mean fields:
+    #   As, Bs, Cs, Ds are the independent complex variables.
+    # Their conjugates enter through the Hermitian/BdG-related matrix slots below.
+    # The conjugate Wirtinger gradients ∂(ĨD)/∂conj(X) therefore act on the slots
+    # carrying conj(Q_link) or conj(P_link), not on the ones carrying Q_link or P_link.
     As = mean_fields[1:3]
     Bs = mean_fields[4:6]
     Cs = mean_fields[7:9]
