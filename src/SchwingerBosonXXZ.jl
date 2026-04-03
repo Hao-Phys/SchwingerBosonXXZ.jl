@@ -6,24 +6,19 @@ using NLsolve
 using Optim
 
 include("Types.jl")
-export SchwingerBosonSystem, set_mean_fields!, set_x!
+export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!
 include("HamiltonianMeanField.jl")
 include("DispersionAndIntensities.jl")
 export excitations, dispersion
-include("FreeEnergy.jl")
 include("GradientofHamiltonian.jl")
+
+include("KuboMori.jl")
 include("ObjectiveFunctions.jl")
 
 include("ExpectationValues.jl")
-export expectation_values, spin_expectations
-include("SelfConsistentEqns.jl")
-export solve_self_consistent_mean_fields!
+export expectation_values
 
 include("Optimization.jl")
-export optimize_mean_fields!, optimize_μ!
-
-include("NewtonBacktracking.jl")
-include("CondensedSectorTreatment.jl")
-export solve_self_consistent_mean_fields_condensed!, expectation_values_condensed, spin_expectations_condensed
+export optimize_mean_fields!, optimize_μ0!
 
 end

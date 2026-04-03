@@ -1,66 +1,76 @@
+# Mean-field expectation values of observables
+# 
+# `mean_fields` returns to the mean-field values of As, Bs, Cs, and Ds (12 dim vector).
+# `ns` returns to the boson number ⟨n⟩ for three sublattices (3 dim vector).
+# `Sμ` returns to ⟨S^μ_a⟩ for μ = x, y, z for on a-th column for sublattice a (3x3 matrix).
+function expectation_values(sbs::SchwingerBosonSystem;
+    optimize_μ::Bool=true,
+    options = Optim.Options(show_trace=false, iterations=100), tol=1e-8, max_iters=100)
+    if optimize_μ
+        μ0s = copy(real(sbs.mean_fields[13:15]))
+        optimize_μ0!(sbs, μ0s; options, tol, max_iters)
+    end
 
-@inline bose(E, T) = sign(E) * 1 / (exp(E / T) - 1)
-@inline combine_index(α, σ) = (α-1) * 2 + σ
-
-function expectation_values(sbs::SchwingerBosonSystem)
-    (; L, T) = sbs
+    (; L, S) = sbs
     Nu = L^2
-    expectations = zeros(ComplexF64, 15)
-    As_exp = view(expectations, 1:3)
-    Bs_exp = view(expectations, 4:6)
-    Cs_exp = view(expectations, 7:9)
-    Ds_exp = view(expectations, 10:12)
-    ns_exp = view(expectations, 13:15)
 
+    # Buffers
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
 
-    for i in 1:L, j in 1:L
-        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        try
-        E = bogoliubov!(V, D)
-            for α in 1:3, n in 1:6
-                β = mod1(α+1, 3)
-                As_exp[α] += link_phase(α, q)/(6Nu) * ( (conj(V[combine_index(α,1)+6, n]) * V[combine_index(β,2), n] - conj(V[combine_index(α,2)+6, n] * V[combine_index(β,1), n])) * bose(E[n], T)  + (conj(V[combine_index(α,1)+6, n+6]) * V[combine_index(β,2), n+6] - conj(V[combine_index(α,2)+6, n+6]) * V[combine_index(β,1), n+6]) * bose(E[n+6], T) )
+    P = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
 
-                Bs_exp[α] += link_phase(α, -q)/(6Nu) * ( (conj(V[combine_index(β,1), n]) * V[combine_index(α,1), n] + conj(V[combine_index(β,2), n] * V[combine_index(α,2), n])) * bose(E[n], T)  + (conj(V[combine_index(β,1), n+6]) * V[combine_index(α,1), n+6] + conj(V[combine_index(β,2), n+6]) * V[combine_index(α,2), n+6]) * bose(E[n+6], T) )
+    # Buffers to hold the derivatives of the dynamical matrix
+    ∂ID∂ϕs = zeros(ComplexF64, 12, 12, 27)
+    ∂D∂Ss = zeros(ComplexF64, 12, 12, 3, 3)
 
-                Cs_exp[α] += link_phase(α, -q)/(6Nu) * ( (conj(V[combine_index(β,1), n]) * V[combine_index(α,1), n] - conj(V[combine_index(β,2), n] * V[combine_index(α,2), n])) * bose(E[n], T)  + (conj(V[combine_index(β,1), n+6]) * V[combine_index(α,1), n+6] - conj(V[combine_index(β,2), n+6]) * V[combine_index(α,2), n+6]) * bose(E[n+6], T) )
-
-                Ds_exp[α] += link_phase(α, q)/(6Nu) * ( (conj(V[combine_index(α,1)+6, n]) * V[combine_index(β,2), n] + conj(V[combine_index(α,2)+6, n] * V[combine_index(β,1), n])) * bose(E[n], T)  + (conj(V[combine_index(α,1)+6, n+6]) * V[combine_index(β,2), n+6] + conj(V[combine_index(α,2)+6, n+6]) * V[combine_index(β,1), n+6]) * bose(E[n+6], T) )
-
-                ns_exp[α] += 1/Nu * ((abs2(V[combine_index(α,1), n]) + abs2(V[combine_index(α,2), n])) * bose(E[n], T) + (abs2(V[combine_index(α,1), n+6]) + abs2(V[combine_index(α,2), n+6])) * bose(E[n+6], T))
-            end
-        catch _
-            expectations .= NaN
-            return expectations
+    # Computes the gradient of Ĩ D with respect to the chemical potentials μ₀
+    @views for α in 1:3
+        ∂ID∂μ0!(∂ID∂ϕs[:, :, α+24], α)
+        for μ in 1:3
+            ∂ID∂S!(∂D∂Ss[:, :, α, μ], α, μ, sbs)
         end
     end
 
-    return expectations
-end
-
-function spin_expectations(sbs::SchwingerBosonSystem)
-    (; L, T, S) = sbs
-    Nu = L^2
-
-    S_exps = zeros(3, 3)
-    D = zeros(ComplexF64, 12, 12)
-    V = zeros(ComplexF64, 12, 12)
-
+    ∂F2α = zeros(27)
+    Ss_exps = zeros(3, 3)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        E = bogoliubov!(V, D)
-        for α in 1:3, n in 1:6
-            spinor1 = [V[combine_index(α,1), n], V[combine_index(α,2), n]]
-            spinor2 = [V[combine_index(α,1), n+6], V[combine_index(α,2), n+6]]
-            for μ in 1:3
-                S_exps[μ, α] += S/(Nu) * real(spinor1' * σs[μ] * spinor1 * bose(E[n], T) + spinor2' * σs[μ] * spinor2 * bose(E[n+6], T))
-            end
+        single_particle_density_matrix_condensed!(P, D, V, tmp, sbs, q)
+
+        # Computes the gradient of Ĩ D_q with respect to the mean fields A, B, C, and D.
+        @views for α in 1:3
+            ∂ID∂A!(∂ID∂ϕs[:, :, α],   ∂ID∂ϕs[:, :, α+12], sbs, q, α)
+            ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], sbs, q, α)
+            ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], sbs, q, α)
+            ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], sbs, q, α)
+        end
+
+        @views for α in 1:27
+            # Computes ∂F / ∂ϕ_α (F being the bosonic free energy),
+            # which is stored in `∂F2α`.
+            # In our convention: ∂F2α = f[α] * ⟨\hat{O}[α]⟩₀,
+            # with \hat{O}[α] being the real (α=1:12) or imaginary (α=13:24) part of
+            # the corresponding operators (\hat{A}, \hat{B}, \hat{C}, \hat{D})
+            ∂F2α[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
+        end
+
+        for α in 1:3, μ in 1:3
+            Ss_exps[α, μ] += real(tr(P * ∂D∂Ss[:, :, α, μ])) / Nu
         end
     end
 
-    return S_exps
+    mean_fields = zeros(ComplexF64, 12)
+    inv_fα = inv_interaction_strengths(sbs)
+    for α in 1:12
+        mean_fields[α] = inv_fα[α] * ∂F2α[α] / 6 + 1im * inv_fα[α+12] * ∂F2α[α+12] / 6
+    end
+
+    ns = zeros(3)
+    for α in 1:3
+        ns[α] = -∂F2α[α+24] - 1
+    end
+
+    return mean_fields, ns, Ss_exps
 end

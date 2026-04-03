@@ -138,3 +138,38 @@ function ∂ID∂μ0!(out, α::Int)
         out[i+6, i+6] += 1.0
     end
 end
+
+# The derivative with respect to the spin operators:
+function ∂ID∂S!(out, α::Int, μ::Int, sbs::SchwingerBosonSystem)
+    S = sbs.S
+    out .= 0.0
+    index = 2α-1
+    view1 = view(out, index:index+1, index:index+1)
+    view1 .=  S * σs[μ]
+    view2 = view(out, index+6:index+7, index+6:index+7)
+    view2 .= -S * σs[μ]
+end
+
+# The inverse of the "interaction" strengths,
+# where we included in contributions from the decoupling factors.
+function inv_interaction_strengths(sbs::SchwingerBosonSystem)
+    (; J, Δ, α_dcoups) = sbs
+    J₊ = J * (Δ + 1) / 2
+    J₋ = J * (Δ - 1) / 2
+    inv_J₊ = J₊ == 0 ? 0 : 1 / J₊
+    inv_J₋ = J₋ == 0 ? 0 : 1 / J₋
+    inv_fα = zeros(24)
+    for α in (1, 2, 3, 13, 14, 15)
+        inv_fα[α] = -inv_J₊ * (1+α_dcoups[1])
+    end
+    for α in (4, 5, 6, 16, 17, 18)
+        inv_fα[α] = inv_J₊ * (1-α_dcoups[1])
+    end
+    for α in (7, 8, 9, 19, 20, 21)
+        inv_fα[α] = inv_J₋ * (1-α_dcoups[2])
+    end
+    for α in (10, 11, 12, 22, 23, 24)
+        inv_fα[α] = -inv_J₋ * (1+α_dcoups[2])
+    end
+    return inv_fα
+end

@@ -1,150 +1,90 @@
-function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{ComplexF64}, V::Matrix{ComplexF64}, tmp::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3)
-    P .= 0.0
-    (; T) = sbs
-    dynamical_matrix!(D, sbs, q_reshaped)
-    try
-        E = bogoliubov!(V, D)
-        for i in eachindex(E)
-            # Include the 1/2 factor here
-            P[i, i] += coth(E[i] / (2T)) / 4
-        end
-        # P = V * diag( coth(E / (2T)) ) * inv(V) / 2
-        mul!(tmp, V, P)
-        mul!(P, tmp, inv(V))
-        return E
-    catch e
-        # @warn "Dynamical matrix is not positive definite"
-        P .= 0.0
-        E = fill(NaN, 12)
-        return E
-    end
-end
-
-# Objective function for the chemical potential optimization and its gradient
-function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
-    set_μ0!(sbs, x)
-
-    # Initialize the buffers
-    g .= 0.0
+# Search for the condensation shift `c` such that
+# the minimum eigenvalue of Ĩ * D is ϵ
+function search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
+    tol=1e-8, max_iters=1000)
+    set_μ0!(sbs, y)
+    (; L, condensation_ϵ) = sbs
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
-    P = zeros(ComplexF64, 12, 12)
-    tmp = zeros(ComplexF64, 12, 12)
-    ∂D∂X_re = zeros(ComplexF64, 12, 12)
 
-    (; L, S, T, mean_fields, J, Δ) = sbs
-    J₊ = J * (Δ + 1) / 2
-    J₋ = J * (Δ - 1) / 2
-    Nu = L^2
-
+    # Pre-shift μ₀ so that D is positive-definite
+    shifts = Float64[]
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-        if any(isnan, E)
-            g .= NaN
-            f = Inf
-            return f
-        else
-            for n in 1:6
-                f += -E[n] / (2Nu)
-                (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
-            end
-            for α in 1:3
-                ∂ID∂μ0!(∂D∂X_re, tmp, α)
-                g[α] += -real(tr(P * ∂D∂X_re)) / Nu
-            end
-        end
+        dynamical_matrix!(D, sbs, q)
+        push!(shifts, max(0.0, -eigmin(D)))
     end
+    shift = maximum(shifts) + 1e-8
+    set_μ0!(sbs, copy(y) .- shift)
 
-    As = mean_fields[1:3]
-    Bs = mean_fields[4:6]
-    Cs = mean_fields[7:9]
-    Ds = mean_fields[10:12]
-
-    for α in 1:3
-        f -= -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
-        f -= (1+2S) * x[α]
-        g[α] += -(1+2S)
-    end
-
-    return f
-end
-
-# Calculate the divided difference matrix as L"\mathbb{D}" defined in the note
-function divided_difference!(sbs, Dmat, E; atol=1e-8)
-    Dmat .= 0.0
-    T = sbs.T
-    for i in eachindex(E), j in eachindex(E)
-        if isapprox(E[i], E[j]; atol)
-            Dmat[i, j] += T > 1e-8 ? -csch(E[i]/(2T))^2 / (2T) : 0.0
-        else
-            Dmat[i, j] += (coth(E[i]/2T) - coth(E[j]/2T)) / (E[i] - E[j])
-        end
-    end
-end
-
-# The contents of `tmp` and `tmp2` are modified in-place. The remainings are fixed. The final result is stored in `tmp`.
-function divided_aux!(tmp, tmp2, Dmat, ∂D∂X, V, inv_V)
-    mul!(tmp, inv_V, ∂D∂X)
-    mul!(tmp2, tmp, V)
-    tmp .= Dmat .* tmp2
-    mul!(tmp2, V, tmp)
-    mul!(tmp, tmp2, inv_V)
-end
-
-function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
-    set_μ0!(sbs, x)
-
-    # Calculate the gradient
-    f = 0.0
-    g .= 0.0
-    h .= 0.0
-
-    D = zeros(ComplexF64, 12, 12)
-    V = zeros(ComplexF64, 12, 12)
-    P = zeros(ComplexF64, 12, 12)
-    tmp = zeros(ComplexF64, 12, 12)
-    tmp2 = zeros(ComplexF64, 12, 12)
-    Dmat = zeros(ComplexF64, 12, 12)
-
-    (; L, S, T, mean_fields, J, Δ) = sbs
-    J₊ = J * (Δ + 1) / 2
-    J₋ = J * (Δ - 1) / 2
-    Nu = L^2
-
-    ∂D∂X_re_α = zeros(ComplexF64, 12, 12, 3)
-
+    c_shifts = Float64[]
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
-
-        if any(isnan, E)
-            g .= Inf
-            h .= Inf
-            f = Inf
-            return f
-        else
-            inv_V = inv(V)
-            divided_difference!(sbs, Dmat, E)
-
-            for n in 1:6
-                f += -E[n] / (2Nu)
-                (T > 1e-8) && (f += -real(T * log1mexp_modified(E[n]/T)) / Nu)
-            end
-
-            @views for α in 1:3
-                ∂ID∂μ0!(∂D∂X_re_α[:, :, α], tmp, α)
-            end
-
-            @views for α in 1:3
-                g[α] += -real(tr(P * ∂D∂X_re_α[:, :, α])) / Nu
-                divided_aux!(tmp, tmp2, Dmat, ∂D∂X_re_α[:, :, α], V, inv_V)
-                for β in 1:3
-                    h[α, β] += -real(tr(tmp * ∂D∂X_re_α[:, :, β])) / (4Nu)
+        dynamical_matrix!(D, sbs, q)
+        E = bogoliubov!(V, D)[1:6]
+        eigval_min = minimum(E)
+        if eigval_min < condensation_ϵ
+            c_min, c_max = 0.0, 50.0
+            find_c = false
+            iter = 0
+            while !find_c && iter < max_iters
+                c = (c_min + c_max) / 2
+                dynamical_matrix!(D, sbs, q)
+                for k in 1:12
+                    D[k, k] += c
                 end
+                E = bogoliubov!(V, D)[1:6]
+                eigval_min = minimum(E)
+                if eigval_min - condensation_ϵ > tol
+                    c_max = c
+                elseif eigval_min - condensation_ϵ < -tol
+                    c_min = c
+                else
+                    find_c = true
+                end
+                iter += 1
             end
+            push!(c_shifts, c)
+            # (iter == max_iters) && (@warn "Max iterations reached when searching for condensation c shift at q = $q")
+        else
+            c = 0.0
+            push!(c_shifts, c)
         end
     end
+
+    c_shift = maximum(c_shifts) + shift
+    return c_shift
+end
+
+function bosonic_free_energy!(V::Matrix{ComplexF64}, D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem)
+    (; L, T) = sbs
+    Nu = L^2
+    f = 0.0
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        dynamical_matrix!(D, sbs, q)
+        E = bogoliubov!(V, D)
+        @inbounds for n in 1:6
+            f += E[n] / (2Nu)
+            (T > 1e-8) && (f += real(T * log1mexp_modified(E[n]/T)) / Nu)
+        end
+    end
+    return f
+end
+
+# Objective functions for the chemical potential optimization.
+# The regular function without a shift
+function f_μ0!(sbs::SchwingerBosonSystem, x)
+    set_μ0!(sbs, x)
+
+    D = zeros(ComplexF64, 12, 12)
+    V = zeros(ComplexF64, 12, 12)
+
+    (; S, mean_fields, J, Δ) = sbs
+    J₊ = J * (Δ + 1) / 2
+    J₋ = J * (Δ - 1) / 2
+
+    f = -bosonic_free_energy!(V, D, sbs)
 
     As = mean_fields[1:3]
     Bs = mean_fields[4:6]
@@ -154,139 +94,108 @@ function fgh_μ0!(sbs::SchwingerBosonSystem, f, g, h, x)
     for α in 1:3
         f -= -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
         f -= (1+2S) * x[α]
-        g[α] += -(1+2S)
     end
 
     return f
 end
 
-# The variational free energy objective function with gradient for Optim
-function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
+# We need to shift μ₀ by `c_shift` to make sure that the minimum mode
+# is greater or equal to the condensation threshold ϵ.
+function f_y!(sbs::SchwingerBosonSystem, y; tol=1e-8, max_iters=100)
+    c_shift = search_for_condensation_shift!(sbs, y; tol, max_iters)
+    μ0_shifted = copy(y) .- c_shift
+    return f_μ0!(sbs, μ0_shifted)
+end
+
+# Variational free energy and its gradient with respect to the mean fields ϕ
+# given the Schwinger boson number constraints are satisfied by μ₀⋆ and μ⋆
+function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ; 
+    options = Optim.Options(show_trace=false, iterations=100), tol=1e-8, max_iters=100)
+
+    set_ϕ!(sbs, ϕ)
+    (; L, S) = sbs
+    Nu = L^2
+
     if isnothing(g)
         g = zero(ϕ)
     end
-    # Make sure to set the mean fields to the `sbs` object
-    set_ϕ!(sbs, ϕ)
+    g .= 0.0
 
-    # Calculate the "temperature*entropy" term of the free energy
-    (; L, J, Δ, S, T) = sbs
-    Nu = L^2
+    μ0s = copy(real(sbs.mean_fields[13:15]))
+    optimize_μ0!(sbs, μ0s; options, tol, max_iters)
 
     # Buffers
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
-
-    # Maximize the mean-field free energy to find the optimal chemical potential
-    # But we need a μ0 such that the dynamical matrix is positive definite
-    eigvals_min = Float64[]
-    for i in 1:L, j in 1:L
-        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        eigval_min = eigmin(D)
-        push!(eigvals_min, eigval_min)
-    end
-
-    τ = max(0.0, -minimum(eigvals_min))
-    μ0s = copy(real(sbs.mean_fields[13:15])) .- (τ + T)
-
-    optimize_μ0_newton!(sbs, μ0s;  g_abstol=1e-6, maxiters=100, armijo_α_min=1e-12, show_trace=true)
-
-    f = 0.0
-
-    # Contribution from the "entropy" term
-    for i in 1:L, j in 1:L
-        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        try
-            E = bogoliubov!(V, D)
-            for n in 1:6
-                f += E[n] / (2Nu)
-                (T > 1e-8) && (f += real(T * log1mexp_modified(E[n]/T)) / Nu)
-            end
-        # If the dynamical matrix is not positive definite, return to Inf immediately
-        catch _
-            @warn "Dynamical matrix is not positive definite, returning Inf. Skipping this configuration..."
-            g .= NaN
-            f = Inf
-            return f
-        end
-    end
-
-    g .= 0.0
-    # Buffers to calculate the gradient
     P = zeros(ComplexF64, 12, 12)
     tmp = zeros(ComplexF64, 12, 12)
     tmp2 = zeros(ComplexF64, 12, 12)
     Dmat = zeros(ComplexF64, 12, 12)
-    # Buffers to hold the derivatives of the dynamical matrix
     ∂ID∂ϕs = zeros(ComplexF64, 12, 12, 27)
     ∂F2α = zeros(27)
     ∂F2αβ = zeros(27, 27)
 
-    # The "interaction" strength
-    J₊ = J * (Δ + 1) / 2
-    J₋ = J * (Δ - 1) / 2
-    inv_J₊ = J₊ == 0 ? 0 : 1 / J₊
-    inv_J₋ = J₋ == 0 ? 0 : 1 / J₋
-    fα = zeros(24)
-    inv_fα = zeros(24)
-    for α in (1, 2, 3, 13, 14, 15)
-        fα[α] = -J₊
-        inv_fα[α] = -inv_J₊
-    end
-    for α in (4, 5, 6, 16, 17, 18)
-        fα[α] = J₊
-        inv_fα[α] = inv_J₊
-    end
-    for α in (7, 8, 9, 19, 20, 21)
-        fα[α] = J₋
-        inv_fα[α] = inv_J₋
-    end
-    for α in (10, 11, 12, 22, 23, 24)
-        fα[α] = -J₋
-        inv_fα[α] = -inv_J₋
-    end
+    # The bosonic free energy contribution,
+    # whose gradient is cancelled by the "correction" term in the variational free energy.
+    # See below
+    f = bosonic_free_energy!(V, D, sbs)
 
+    inv_fα = inv_interaction_strengths(sbs)
+
+    # Computes the gradient of Ĩ D with respect to the chemical potentials μ₀
     @views for α in 1:3
-        ∂ID∂μ0!(∂ID∂ϕs[:, :, α+24], tmp, α)
+        ∂ID∂μ0!(∂ID∂ϕs[:, :, α+24], α)
     end
 
+    # Calculates `∂F2α` and `∂F2αβ`
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+        E = single_particle_density_matrix_condensed!(P, D, V, tmp, sbs, q)
         inv_V = inv(V)
         divided_difference!(sbs, Dmat, E)
+        divided_difference_condensed!(sbs, Dmat, E, P, V, inv_V)
 
+        # Computes the gradient of Ĩ D_q with respect to the mean fields A, B, C, and D.
         @views for α in 1:3
-            ∂ID∂A!(∂ID∂ϕs[:, :, α],   ∂ID∂ϕs[:, :, α+12], tmp, sbs, q, α)
-            ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], tmp, sbs, q, α)
-            ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], tmp, sbs, q, α)
-            ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], tmp, sbs, q, α)
+            ∂ID∂A!(∂ID∂ϕs[:, :, α],   ∂ID∂ϕs[:, :, α+12], sbs, q, α)
+            ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], sbs, q, α)
+            ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], sbs, q, α)
+            ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], sbs, q, α)
         end
 
-        # Calculate the first and second derivatives of the F2 (quadratic bosonic free energy)
         @views for α in 1:27
-            # Gradient from entropy term
+            # Computes ∂F / ∂ϕ_α (F being the bosonic free energy),
+            # which is stored in `∂F2α`.
+            # In our convention: ∂F2α = f[α] * ⟨\hat{O}[α]⟩₀,
+            # with \hat{O}[α] being the real (α=1:12) or imaginary (α=13:24) part of
+            # the corresponding operators (\hat{A}, \hat{B}, \hat{C}, \hat{D})
             ∂F2α[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
-            # Calculate the second derivatives of the quadratic free energy
+            # Calculate the second derivatives of the bosonic free energy
+            # ∂F2αβ = ∂²F / ∂ϕ_α∂ϕ_β = f[α] * f[β] ∂⟨\hat{O}[β]⟩₀ / ∂ϕ_α
             divided_aux!(tmp, tmp2, Dmat, ∂ID∂ϕs[:, :, α], V, inv_V)
             for β in 1:27
-                ∂F2αβ[α, β] += real(tr(tmp * ∂ID∂ϕs[:, :, β])) / (4Nu)
+                ∂F2αβ[α, β] += real(tr(tmp * ∂ID∂ϕs[:, :, β])) / Nu
             end
         end
     end
 
-    # Now we add the contribution from the "correction" term L"⟨H - H_{MF}⟩_{MF}"
+    # Now we add the contribution from the "correction" term L"⟨H - H_{MF}⟩₀"
     for α in 1:24
         f += inv_fα[α] * ∂F2α[α]^2 / 12 - ∂F2α[α] * ϕ[α]
+        # Accumulate the gradient from the above "correction" term
+        # Note that the additional term -δ_{αβ} ∂F2α[β] cancels the contribution
+        # from the gradient of the bosonic free energy.
         for β in 1:24
             g[α] += ∂F2αβ[α, β] * (inv_fα[β]/6 * ∂F2α[β] - ϕ[β])
         end
     end
 
-    # Now we need to calculate μ and the gradient of f with respect to ϕ
+    # Now we add the contribution from - Δμ * ⟨n⟩₀ and its gradient,
+    # where Δμ = pinv(κ0) * (ΔH; n)_{KM} = pinv(κ0) * ∂ΔH/∂μ₀.
     μ0s = real(sbs.mean_fields[13:15])
-    κ0  = zeros(3, 3)
+    # Buffer for the compressiblity matrix κ0
+    κ0 = zeros(3, 3)
+    # Buffer for the term ∂ΔH/∂μ₀
     ∂ΔH∂μ0 = zeros(3)
     for α in 1:3
         f += μ0s[α] * (2S+1)
@@ -297,9 +206,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
             ∂ΔH∂μ0[α] += ∂F2αβ[α+24, β] * (inv_fα[β]/6 * ∂F2α[β] - ϕ[β])
         end
     end
-
     sbs.Δμs .= pinv(κ0) * ∂ΔH∂μ0
-
     for α in 1:24
         for β in 1:3
             g[α] += ∂F2αβ[α, β+24] * sbs.Δμs[β]

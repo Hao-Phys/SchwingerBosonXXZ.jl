@@ -7,19 +7,41 @@ mutable struct SchwingerBosonSystem
     h_SB :: Float64 # Small symmetry-breaking field
     θs :: Vector{Float64} # Angle of the symmetry-breaking field
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
-    Δμs :: Vector{Float64} # The change in the chemical potentials (not the mean-field variables)
+    Δμs :: Vector{Float64} # The difference between μ (the physical chemical potential) and μ₀ (the mean-field (variational) chemical potential)
     α_dcoups :: Vector{Float64} # Continuous parameter for the mean-field decoupling scheme, default 0.5
+    condensation_ϵ :: Float64 # Energy threshold for identifying condensation (in units of J), default 0.0
 end
 
-SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int) = SchwingerBosonSystem(J, Δ, S, T, L, 0.0, zeros(3), zeros(ComplexF64, 15), zeros(3), zeros(2))
-
-SchwingerBosonSystem(J::Float64, Δ::Float64, S::Float64, T::Float64, L::Int, h_SB::Float64, θs::Vector{Float64}) = SchwingerBosonSystem(J, Δ, S, T, L, h_SB, θs, zeros(ComplexF64, 15), zeros(3), zeros(2))
+# Constructor with default values for mean fields, Δμs, and α_dcoups
+SchwingerBosonSystem(
+    J::Float64,
+    Δ::Float64,
+    S::Float64,
+    T::Float64,
+    L::Int;
+    h_SB::Float64 = 0.0,
+    θs::Vector{Float64} = zeros(3),
+    α_dcoups::Vector{Float64} = zeros(2),
+    condensation_ϵ::Float64 = 0.0,
+) = SchwingerBosonSystem(
+    J,
+    Δ,
+    S,
+    T,
+    L,
+    h_SB,
+    θs,
+    zeros(ComplexF64, 15),
+    zeros(3),
+    α_dcoups,
+    condensation_ϵ,
+)
 
 function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     (; J, Δ, S, T, L, mean_fields, α_dcoups) = sbs
     printstyled(io, "SchwingerBosonSystem", "\n"; bold=true, color=:underline)
     println(io, "J = ", J, " Δ = ", Δ, " S = ", S, " T = ", T, " L = ", L, " α_dcoups = ", α_dcoups)
-    println("Mean field values: ")
+    println(io, "Mean field values: ")
     for i in 1:3
         println("A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])
         println("C[$i]= ", mean_fields[i+6], " D[$i]= ", mean_fields[i+9])
@@ -27,34 +49,12 @@ function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     end
 end
 
-
 function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
     if length(mean_fields) ≠ 15
         throw(ArgumentError("Mean fields vector must have length 15."))
     end
     for i in 1:15
         sbs.mean_fields[i] = mean_fields[i]
-    end
-end
-
-function set_mean_fields_scf!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
-    if length(mean_fields) ≠ 12
-        throw(ArgumentError("Mean fields vector must have length 12."))
-    end
-    for i in 1:12
-        sbs.mean_fields[i] = mean_fields[i]
-    end
-end
-
-function set_x!(sbs::SchwingerBosonSystem, x)
-    if length(x) ≠ 27
-        throw(ArgumentError("Input vector must have length 27."))
-    end
-    for i in 1:12
-        sbs.mean_fields[i] = x[i] + 1im * x[i+12]
-    end
-    for i in 1:3
-        sbs.mean_fields[12+i] = x[24+i]
     end
 end
 
