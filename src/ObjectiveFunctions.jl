@@ -189,7 +189,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ)
     τ = max(0.0, -minimum(eigvals_min))
     μ0s = copy(real(sbs.mean_fields[13:15])) .- (τ + T)
 
-    optimize_μ0_newton!(sbs, μ0s;  g_abstol=1e-6, maxiters=100, armijo_α_min=1e-12, show_trace=true)
+    optimize_μ0_newton!(sbs, μ0s;  g_abstol=1e-6, maxiters=100, armijo_α_min=1e-12, show_trace=false)
 
     f = 0.0
 
