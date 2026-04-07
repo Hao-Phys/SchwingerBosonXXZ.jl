@@ -45,7 +45,6 @@ function search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
                 iter += 1
             end
             push!(c_shifts, c)
-            # (iter == max_iters) && (@warn "Max iterations reached when searching for condensation c shift at q = $q")
         else
             c = 0.0
             push!(c_shifts, c)
@@ -56,25 +55,45 @@ function search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
     return c_shift
 end
 
-function bosonic_free_energy!(V::Matrix{ComplexF64}, D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem)
+# `sign` is used to control whether we are evaluating the original bosonic free energy 
+# (sign=1) or its negative (sign=-1, used in the optimization of μ₀)
+function bosonic_free_energy!(g_boson::Union{Nothing, AbstractVector}, V::Matrix{ComplexF64}, D::Matrix{ComplexF64},
+    sbs::SchwingerBosonSystem; sign::Int=1)
     (; L, T) = sbs
     Nu = L^2
     f = 0.0
+    !isnothing(g_boson) && (g_boson .= 0.0)
+
+    P = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
+    ∂ID = zeros(ComplexF64, 12, 12)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        dynamical_matrix!(D, sbs, q)
-        E = bogoliubov!(V, D)
-        @inbounds for n in 1:6
-            f += E[n] / (2Nu)
-            (T > 1e-8) && (f += real(T * log1mexp_modified(E[n]/T)) / Nu)
+        E = single_particle_density_matrix_normal!(P, D, V, tmp, sbs, q)
+        if any(isnan, E)
+            isnothing(g_boson) || (g_boson .= NaN)
+            f = Inf
+            return f
+        else
+            @inbounds for n in 1:6
+                f += sign * E[n] / (2Nu)
+                (T > 1e-8) && (f += real(sign * T * log1mexp_modified(E[n]/T)) / Nu)
+            end
+            if !isnothing(g_boson)
+                @inbounds for α in 1:3
+                    ∂ID∂μ0!(∂ID, α)
+                    g_boson[α] += sign * real(tr(P * ∂ID)) / Nu
+                end
+            end
         end
     end
+
     return f
 end
 
 # Objective functions for the chemical potential optimization.
 # The regular function without a shift
-function f_μ0!(sbs::SchwingerBosonSystem, x)
+function fg_μ0!(sbs::SchwingerBosonSystem, f, g, x)
     set_μ0!(sbs, x)
 
     D = zeros(ComplexF64, 12, 12)
@@ -84,7 +103,8 @@ function f_μ0!(sbs::SchwingerBosonSystem, x)
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
 
-    f = -bosonic_free_energy!(V, D, sbs)
+    # Maximize the bosonic free energy, equivalent to minimizing the negative of it.
+    f = bosonic_free_energy!(g, V, D, sbs; sign=-1)
 
     As = mean_fields[1:3]
     Bs = mean_fields[4:6]
@@ -94,6 +114,7 @@ function f_μ0!(sbs::SchwingerBosonSystem, x)
     for α in 1:3
         f -= -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
         f -= (1+2S) * x[α]
+        g[α] -= (1+2S)
     end
 
     return f
@@ -138,7 +159,7 @@ function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ;
     # The bosonic free energy contribution,
     # whose gradient is cancelled by the "correction" term in the variational free energy.
     # See below
-    f = bosonic_free_energy!(V, D, sbs)
+    f = bosonic_free_energy!(nothing, V, D, sbs)
 
     inv_fα = inv_interaction_strengths(sbs)
 

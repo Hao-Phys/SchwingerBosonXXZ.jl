@@ -7,14 +7,19 @@ function single_particle_density_matrix_normal!(P::Matrix{ComplexF64},
     P .= 0.0
     (; T) = sbs
     dynamical_matrix!(D, sbs, q_reshaped)
-    E = bogoliubov!(V, D)
-    @inbounds for i in 1:6
-        P[i, i] += coth(E[i] / (2T)) / 2
+    try
+        E = bogoliubov!(V, D)
+        @inbounds for i in eachindex(E)
+            P[i, i] += coth(E[i] / (2T)) / 4
+        end
+        mul!(tmp, V, P)
+        mul!(P, tmp, inv(V))
+        return E
+    catch _
+        P .= 0.0
+        E = fill(NaN, 12)
+        return E
     end
-    mul!(tmp, V, P)
-    mul!(P, tmp, inv(V))
-
-    return E
 end
 
 function single_particle_density_matrix_condensed!(P::Matrix{ComplexF64}, 
@@ -68,11 +73,11 @@ end
 function divided_difference!(sbs, Dmat, E; atol=1e-8)
     Dmat .= 0.0
     T = sbs.T
-    for i in 1:6, j in 1:6
+    @inbounds for i in eachindex(E), j in eachindex(E)
         if isapprox(E[i], E[j]; atol)
-            Dmat[i, j] += T > 1e-8 ? -csch(E[i]/(2T))^2 / (4T) : 0.0
+            Dmat[i, j] += T > 1e-8 ? -csch(E[i]/(2T))^2 / (8T) : 0.0
         else
-            Dmat[i, j] += (coth(E[i]/2T) - coth(E[j]/2T)) / (2 * (E[i] - E[j]))
+            Dmat[i, j] += (coth(E[i]/2T) - coth(E[j]/2T)) / (4 * (E[i] - E[j]))
         end
     end
 end

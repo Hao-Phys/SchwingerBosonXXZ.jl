@@ -152,24 +152,24 @@ end
 
 # The inverse of the "interaction" strengths,
 # where we included in contributions from the decoupling factors.
+@inline safe_inv(x) = iszero(x) ? zero(x) : inv(x)
+
 function inv_interaction_strengths(sbs::SchwingerBosonSystem)
     (; J, Δ, α_dcoups) = sbs
-    J₊ = J * (Δ + 1) / 2
-    J₋ = J * (Δ - 1) / 2
-    inv_J₊ = J₊ == 0 ? 0 : 1 / J₊
-    inv_J₋ = J₋ == 0 ? 0 : 1 / J₋
+    inv_J₊ = safe_inv(J * (Δ + 1) / 2)
+    inv_J₋ = safe_inv(J * (Δ - 1) / 2)
     inv_fα = zeros(24)
     for α in (1, 2, 3, 13, 14, 15)
-        inv_fα[α] = -inv_J₊ * (1+α_dcoups[1])
+        inv_fα[α] = -inv_J₊ * safe_inv(1 + α_dcoups[1])
     end
     for α in (4, 5, 6, 16, 17, 18)
-        inv_fα[α] = inv_J₊ * (1-α_dcoups[1])
+        inv_fα[α] = inv_J₊ * safe_inv(1 - α_dcoups[1])
     end
     for α in (7, 8, 9, 19, 20, 21)
-        inv_fα[α] = inv_J₋ * (1-α_dcoups[2])
+        inv_fα[α] = inv_J₋ * safe_inv(1 - α_dcoups[2])
     end
     for α in (10, 11, 12, 22, 23, 24)
-        inv_fα[α] = -inv_J₋ * (1+α_dcoups[2])
+        inv_fα[α] = -inv_J₋ * safe_inv(1 + α_dcoups[2])
     end
     return inv_fα
 end

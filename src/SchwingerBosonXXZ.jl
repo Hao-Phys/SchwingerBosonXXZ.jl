@@ -21,4 +21,7 @@ export expectation_values
 include("Optimization.jl")
 export optimize_mean_fields!, optimize_μ0!
 
+# For legacy code that we want to keep for reference but not export.
+include("Legacy.jl")
+
 end
