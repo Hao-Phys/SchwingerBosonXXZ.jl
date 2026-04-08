@@ -1,7 +1,7 @@
 name = "SchwingerBosonXXZ"
 uuid = "877ee5be-130f-471f-9300-fbd396a46c7c"
-authors = ["Hao Zhang <hzhangphys@gmail.com>"]
 version = "1.0.0-DEV"
+authors = ["Hao Zhang <hzhangphys@gmail.com>"]
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -11,7 +11,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
 NLsolve = "4.5.1"
-Optim = "1.13.2"
+Optim = "1.13.2, 2"
 StaticArrays = "1.9.13"
 julia = ">=1.11"
 
