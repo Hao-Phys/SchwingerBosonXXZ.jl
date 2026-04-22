@@ -62,7 +62,7 @@ function fg_ϕ_legacy!(sbs::SchwingerBosonSystem, f, g, ϕ;
     # Calculates `∂F2α` and `∂F2αβ`
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        E = single_particle_density_matrix_normal!(P, D, V, tmp, sbs, q)
+        E = single_particle_density_matrix!(P, D, V, tmp, sbs, q)
         inv_V = inv(V)
         divided_difference!(sbs, Dmat, E)
 
@@ -174,7 +174,7 @@ function expectation_values_legacy(sbs::SchwingerBosonSystem;
     Ss_exps = zeros(3, 3)
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
-        single_particle_density_matrix_normal!(P, D, V, tmp, sbs, q)
+        single_particle_density_matrix!(P, D, V, tmp, sbs, q)
 
         # Computes the gradient of Ĩ D_q with respect to the mean fields A, B, C, and D.
         @views for α in 1:3

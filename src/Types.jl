@@ -49,6 +49,11 @@ function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     end
 end
 
+mutable struct OptimAux
+    c_shift::Float64
+    conden_index::Union{Int, Nothing}
+end
+
 function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
     if length(mean_fields) ≠ 15
         throw(ArgumentError("Mean fields vector must have length 15."))

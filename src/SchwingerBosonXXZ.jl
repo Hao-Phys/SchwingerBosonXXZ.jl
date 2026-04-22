@@ -24,4 +24,7 @@ export optimize_mean_fields!, optimize_μ0!
 # For legacy code that we want to keep for reference but not export.
 include("Legacy.jl")
 
+include("SelfConsistentEqns.jl")
+export solve_self_consistent_mean_fields_condensed!
+
 end
