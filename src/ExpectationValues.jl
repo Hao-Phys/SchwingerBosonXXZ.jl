@@ -7,7 +7,7 @@ function expectation_values(sbs::SchwingerBosonSystem;
     optimize_μ::Bool=true,
     options = Optim.Options(show_trace=false, iterations=1000), tol=1e-8, max_iters=100)
 
-    aux = OptimAux(0.0, nothing)
+    aux = OptimAux(0.0, 0.0, nothing)
     if optimize_μ
         μ0s = copy(real(sbs.mean_fields[13:15]))
         optimize_μ0!(sbs, μ0s, aux; options, tol, max_iters)

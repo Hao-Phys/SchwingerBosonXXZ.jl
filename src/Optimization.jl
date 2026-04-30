@@ -4,10 +4,12 @@ function optimize_μ0!(sbs::SchwingerBosonSystem, μ0, aux::OptimAux;
     ret = optimize(f!, μ0, Optim.NelderMead(), options)
     y_minimizer = ret.minimizer
     set_μ0!(sbs, y_minimizer)
-    c_shift, conden_index = search_for_condensation_shift!(sbs, y_minimizer; tol, max_iters) 
+    positive_shift, c_shift, conden_index = search_for_condensation_shift!(sbs, y_minimizer; tol, max_iters) 
+    aux.positive_shift = positive_shift
     aux.c_shift = c_shift
     aux.conden_index = conden_index
-    μ0_shifted = copy(y_minimizer) .- c_shift
+    total_shift = positive_shift + c_shift
+    μ0_shifted = copy(y_minimizer) .- total_shift
     set_μ0!(sbs, μ0_shifted)
     return ret
 end

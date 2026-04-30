@@ -2,12 +2,11 @@
     search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
         tol=1e-8, max_iters=1000)
 
-Search for the diagonal condensation shift `c` to add to the dynamical matrix
-`D` such that its smallest Bogoliubov eigenvalue equals `condensation_ϵ`.
+Search for the `postive_shift` such that the dynamical matrix is positive definite and the diagonal condensation shift `c_shift` to add to the dynamical matrix `D` such that its smallest Bogoliubov eigenvalue equals `condensation_ϵ`.
 
 For each momentum point `q` on the `L×L` grid, the Bogoliubov spectrum is
 computed. If the minimum eigenvalue falls below `condensation_ϵ`, a bisection
-search over `c ∈ [0, 20]` finds the shift that brings it exactly to
+search over `c_shift ∈ [0, 20]` finds the shift that brings it exactly to
 `condensation_ϵ`. The largest such shift across all momenta is returned,
 since it is the binding constraint that stabilises the full spectrum.
 
@@ -20,6 +19,8 @@ since it is the binding constraint that stabilises the full spectrum.
 - `max_iters=1000`: maximum bisection iterations per momentum point.
 
 # Returns
+- `positive_shift::Float64`: the minimum positive shift that needs to be added to the  
+  chemical potentials μ₀ to make the dynamical matrix positive definite.
 - `c_shift::Float64`: the maximum condensation shift found across all `q`.
   Zero if no momentum point required a shift.
 - `conden_index::Union{Int, Nothing}`: linear index into the flattened `L×L`
@@ -34,17 +35,17 @@ function search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
 
-    shifts = []
+    positive_shifts = []
     for i in 1:L, j in 1:L
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         dynamical_matrix!(D, sbs, q)
         eigval_min = eigmin(D)
         shift = max(0, -eigval_min)
-        push!(shifts, shift)
+        push!(positive_shifts, shift)
     end
 
-    shift = maximum(shifts) + 1e-8
-    y_new = copy(y) .- shift
+    positive_shift = maximum(positive_shifts) + 1e-8
+    y_new = copy(y) .- positive_shift
     set_μ0!(sbs, y_new)
 
     c_shifts = Float64[]
@@ -83,9 +84,9 @@ function search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
 
     c_shift, conden_index = findmax(c_shifts)
     if c_shift == 0.0
-        return c_shift+shift, nothing
+        return positive_shift, c_shift, nothing
     else
-        return c_shift+shift, conden_index
+        return positive_shift, c_shift, conden_index
     end
 end
 
@@ -184,10 +185,12 @@ end
 # This function is used in the optimization of μ₀ for a gradient-free optimizer
 function f_y!(sbs::SchwingerBosonSystem, aux::OptimAux, y; tol=1e-12, max_iters=1000)
     try
-        c_shift, conden_index = search_for_condensation_shift!(sbs, y; tol, max_iters)
+        positive_shift,c_shift, conden_index = search_for_condensation_shift!(sbs, y; tol, max_iters)
+        aux.positive_shift = positive_shift
         aux.c_shift = c_shift
         aux.conden_index = conden_index
-        μ0_shifted = y .- c_shift
+        total_shift = positive_shift + c_shift
+        μ0_shifted = y .- total_shift
         f = f_μ0!(sbs, μ0_shifted)
         return f
     catch _

@@ -50,6 +50,7 @@ function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
 end
 
 mutable struct OptimAux
+    positive_shift::Float64
     c_shift::Float64
     conden_index::Union{Int, Nothing}
 end
