@@ -6,7 +6,7 @@ using NLsolve
 using Optim
 
 include("Types.jl")
-export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!
+export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!, set_classical_mean_fields!
 include("HamiltonianMeanField.jl")
 include("DispersionAndIntensities.jl")
 export excitations, dispersion

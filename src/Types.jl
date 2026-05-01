@@ -93,3 +93,27 @@ const recipvecs_origin = Mat3([2π 0 0; 2π/√3 4π/√3 0; 0 0 2π/10])
 const Ĩ = Diagonal([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0])
 
 const σs = [SMatrix{2, 2}([0.0 1.0; 1.0 0.0]), SMatrix{2, 2}([0.0 -1im; 1im 0.0]), SMatrix{2, 2}([1.0 0.0; 0.0 -1.0])]
+
+function set_classical_mean_fields!(sbs::SchwingerBosonSystem, μ0s, θA, θB, θC, ϕA, ϕB, ϕC)
+    (; S) = sbs
+    @inline bup(θ, ϕ) = √2S * cos(θ/2) * exp(-im * ϕ/2)
+    @inline bdw(θ, ϕ) = √2S * sin(θ/2) * exp( im * ϕ/2)
+
+    A_AB = (bup(θA, ϕA) * bdw(θB, ϕB) - bdw(θA, ϕA) * bup(θB, ϕB)) / 2
+    A_BC = (bup(θB, ϕB) * bdw(θC, ϕC) - bdw(θB, ϕB) * bup(θC, ϕC)) / 2
+    A_CA = (bup(θC, ϕC) * bdw(θA, ϕA) - bdw(θC, ϕC) * bup(θA, ϕA)) / 2
+
+    B_AB = conj(conj(bup(θA, ϕA)) * bup(θB, ϕB) + conj(bdw(θA, ϕA)) * bdw(θB, ϕB)) / 2
+    B_BC = conj(conj(bup(θB, ϕB)) * bup(θC, ϕC) + conj(bdw(θB, ϕB)) * bdw(θC, ϕC)) / 2
+    B_CA = conj(conj(bup(θC, ϕC)) * bup(θA, ϕA) + conj(bdw(θC, ϕC)) * bdw(θA, ϕA)) / 2
+
+    C_AB = conj(conj(bup(θA, ϕA)) * bup(θB, ϕB) - conj(bdw(θA, ϕA)) * bdw(θB, ϕB)) / 2
+    C_BC = conj(conj(bup(θB, ϕB)) * bup(θC, ϕC) - conj(bdw(θB, ϕB)) * bdw(θC, ϕC)) / 2
+    C_CA = conj(conj(bup(θC, ϕC)) * bup(θA, ϕA) - conj(bdw(θC, ϕC)) * bdw(θA, ϕA)) / 2
+
+    D_AB = (bup(θA, ϕA) * bdw(θB, ϕB) + bdw(θA, ϕA) * bup(θB, ϕB)) / 2
+    D_BC = (bup(θB, ϕB) * bdw(θC, ϕC) + bdw(θB, ϕB) * bup(θC, ϕC)) / 2
+    D_CA = (bup(θC, ϕC) * bdw(θA, ϕA) + bdw(θC, ϕC) * bup(θA, ϕA)) / 2
+
+    set_mean_fields!(sbs, [A_AB, A_BC, A_CA, B_AB, B_BC, B_CA, C_AB, C_BC, C_CA, D_AB, D_BC, D_CA, μ0s...])
+end
