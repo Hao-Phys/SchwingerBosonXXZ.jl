@@ -4,14 +4,11 @@
 # `ns` returns to the boson number ⟨n⟩ for three sublattices (3 dim vector).
 # `Sμ` returns to ⟨S^μ_a⟩ for μ = x, y, z for on a-th column for sublattice a (3x3 matrix).
 function expectation_values(sbs::SchwingerBosonSystem;
-    optimize_μ::Bool=true,
     options = Optim.Options(show_trace=false, iterations=1000), tol=1e-8, max_iters=100)
 
     aux = OptimAux(0.0, 0.0, nothing)
-    if optimize_μ
-        μ0s = copy(real(sbs.mean_fields[13:15]))
-        optimize_μ0!(sbs, μ0s, aux; options, tol, max_iters)
-    end
+    μ0s = copy(real(sbs.mean_fields[13:15]))
+    optimize_μ0!(sbs, μ0s, aux; options, tol, max_iters)
     den_mat_conden = condensation_results!(sbs, aux)
 
     (; L, S) = sbs

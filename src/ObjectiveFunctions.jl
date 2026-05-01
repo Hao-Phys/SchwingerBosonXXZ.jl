@@ -198,6 +198,78 @@ function f_y!(sbs::SchwingerBosonSystem, aux::OptimAux, y; tol=1e-12, max_iters=
     end
 end
 
+function variational_free_energy(sbs::SchwingerBosonSystem; options = Optim.Options(show_trace=false, iterations=1000), tol=1e-8, max_iters=100)
+    D = zeros(ComplexF64, 12, 12)
+    V = zeros(ComplexF64, 12, 12)
+
+    (; S, mean_fields, J, Δ, L) = sbs
+    J₊ = J * (Δ + 1) / 2
+    J₋ = J * (Δ - 1) / 2
+
+    f = bosonic_free_energy!(nothing, V, D, sbs)
+    As = mean_fields[1:3]
+    Bs = mean_fields[4:6]
+    Cs = mean_fields[7:9]
+    Ds = mean_fields[10:12]
+
+    μ0 = copy(real(sbs.mean_fields[13:15]))
+    aux = OptimAux(0.0, 0.0, nothing)
+    optimize_μ0!(sbs, μ0, aux; options, tol, max_iters)
+    den_mat_conden = condensation_results!(sbs, aux)
+    μ0_new = copy(real(sbs.mean_fields[13:15]))
+
+    for α in 1:3
+        f += -3 * (-J₊ * abs2(As[α]) + J₊ * abs2(Bs[α]) + J₋ * abs2(Cs[α]) - J₋ *abs2(Ds[α]))
+        f += (1+2S) * μ0_new[α]
+    end
+
+    P = zeros(ComplexF64, 12, 12)
+    tmp = zeros(ComplexF64, 12, 12)
+    ∂ID∂ϕs = zeros(ComplexF64, 12, 12, 24)
+    ∂F2α = zeros(24)
+
+    inv_fα = inv_interaction_strengths(sbs)
+    # Calculates `∂F2α` and `∂F2αβ`
+    Nu = L^2
+    for i in 1:L, j in 1:L
+        q = Vec3([(i-1)/L, (j-1)/L, 0.0])
+        single_particle_density_matrix!(P, D, V, tmp, sbs, q)
+
+        linear_idx = (j-1)*L + i
+        if linear_idx == aux.conden_index && !isnothing(den_mat_conden)
+            P .+= den_mat_conden
+        end
+
+        # Computes the gradient of Ĩ D_q with respect to the mean fields A, B, C, and D.
+        @views for α in 1:3
+            ∂ID∂A!(∂ID∂ϕs[:, :, α],   ∂ID∂ϕs[:, :, α+12], sbs, q, α)
+            ∂ID∂B!(∂ID∂ϕs[:, :, α+3], ∂ID∂ϕs[:, :, α+15], sbs, q, α)
+            ∂ID∂C!(∂ID∂ϕs[:, :, α+6], ∂ID∂ϕs[:, :, α+18], sbs, q, α)
+            ∂ID∂D!(∂ID∂ϕs[:, :, α+9], ∂ID∂ϕs[:, :, α+21], sbs, q, α)
+        end
+
+        @views for α in 1:24
+            # Computes ∂F / ∂ϕ_α (F being the bosonic free energy),
+            # which is stored in `∂F2α`.
+            # In our convention: ∂F2α = f[α] * ⟨\hat{O}[α]⟩₀,
+            # with \hat{O}[α] being the real (α=1:12) or imaginary (α=13:24) part of
+            # the corresponding operators (\hat{A}, \hat{B}, \hat{C}, \hat{D})
+            ∂F2α[α] += real(tr(P * ∂ID∂ϕs[:, :, α])) / Nu
+        end
+    end
+
+    ϕ = zeros(24)
+    for i in 1:12
+        ϕ[i], ϕ[i+12] = reim(sbs.mean_fields[i])
+    end
+
+    for α in 1:24
+        f += inv_fα[α] * ∂F2α[α]^2 / 12 - ∂F2α[α] * ϕ[α]
+    end
+
+    return f
+end
+
 # Variational free energy and its gradient with respect to the mean fields ϕ
 # given the Schwinger boson number constraints are satisfied by μ₀⋆ and μ⋆
 # function fg_ϕ!(sbs::SchwingerBosonSystem, f, g, ϕ; 

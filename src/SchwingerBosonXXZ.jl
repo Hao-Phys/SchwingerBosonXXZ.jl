@@ -14,6 +14,7 @@ include("GradientofHamiltonian.jl")
 
 include("KuboMori.jl")
 include("ObjectiveFunctions.jl")
+export variational_free_energy
 
 include("ExpectationValues.jl")
 export expectation_values
