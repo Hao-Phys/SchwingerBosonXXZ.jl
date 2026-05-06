@@ -8,7 +8,7 @@ mutable struct SchwingerBosonSystem
     θs :: Vector{Float64} # Angle of the symmetry-breaking field
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
     Δμs :: Vector{Float64} # The difference between μ (the physical chemical potential) and μ₀ (the mean-field (variational) chemical potential)
-    α_dcoups :: Vector{Float64} # Continuous parameter for the mean-field decoupling scheme, default 0.5
+    α_dcoups :: Matrix{Float64} # Continuous parameter for the mean-field decoupling scheme, with dimensions (2, 3) for the two types of decouplings and three links
     condensation_ϵ :: Float64 # Energy threshold for identifying condensation (in units of J), default 0.0
 end
 
@@ -21,7 +21,7 @@ SchwingerBosonSystem(
     L::Int;
     h_SB::Float64 = 0.0,
     θs::Vector{Float64} = zeros(3),
-    α_dcoups::Vector{Float64} = zeros(2),
+    α_dcoups::Matrix{Float64} = zeros(2, 3),
     condensation_ϵ::Float64 = 0.0,
 ) = SchwingerBosonSystem(
     J,

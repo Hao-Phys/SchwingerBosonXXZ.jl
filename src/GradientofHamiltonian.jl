@@ -23,15 +23,15 @@ function ∂ID∂A!(out_re, out_im, sbs::SchwingerBosonSystem, q_reshaped::Vec3,
         j = mod1(i+increment, 6)
 
         # P_link = -0.5 * (J₊*(1+α_dcoups[1])*σ*As[link] + ...)
-        ∂ID12_re[i, j] -= 0.5 * J₊ * sign * phase * (1+α_dcoups[1])
-        ∂ID12_re[j, i] -= 0.5 * J₊ * sign * conj(phase) * (1+α_dcoups[1])
-        ∂ID21_re[i, j] += 0.5 * J₊ * sign * phase * (1+α_dcoups[1])
-        ∂ID21_re[j, i] += 0.5 * J₊ * sign * conj(phase) * (1+α_dcoups[1])
+        ∂ID12_re[i, j] -= 0.5 * J₊ * sign * phase * (1+α_dcoups[1, α])
+        ∂ID12_re[j, i] -= 0.5 * J₊ * sign * conj(phase) * (1+α_dcoups[1, α])
+        ∂ID21_re[i, j] += 0.5 * J₊ * sign * phase * (1+α_dcoups[1, α])
+        ∂ID21_re[j, i] += 0.5 * J₊ * sign * conj(phase) * (1+α_dcoups[1, α])
 
-        ∂ID12_im[i, j] -= 0.5 * J₊ * sign * ( 1im) * phase * (1+α_dcoups[1])
-        ∂ID12_im[j, i] -= 0.5 * J₊ * sign * ( 1im) * conj(phase) * (1+α_dcoups[1])
-        ∂ID21_im[i, j] += 0.5 * J₊ * sign * (-1im) * phase * (1+α_dcoups[1])
-        ∂ID21_im[j, i] += 0.5 * J₊ * sign * (-1im) * conj(phase) * (1+α_dcoups[1])
+        ∂ID12_im[i, j] -= 0.5 * J₊ * sign * ( 1im) * phase * (1+α_dcoups[1, α])
+        ∂ID12_im[j, i] -= 0.5 * J₊ * sign * ( 1im) * conj(phase) * (1+α_dcoups[1, α])
+        ∂ID21_im[i, j] += 0.5 * J₊ * sign * (-1im) * phase * (1+α_dcoups[1, α])
+        ∂ID21_im[j, i] += 0.5 * J₊ * sign * (-1im) * conj(phase) * (1+α_dcoups[1, α])
     end
 end
 
@@ -53,15 +53,15 @@ function ∂ID∂B!(out_re, out_im, sbs::SchwingerBosonSystem, q_reshaped::Vec3,
         j = mod1(i+2, 6)
 
         # Q_link = 0.5 * (J₊*(1-α_dcoups[1])*Bs[link] + ...)
-        ∂ID11_re[i, j] += 0.5 * J₊ * phase * (1-α_dcoups[1])
-        ∂ID11_re[j, i] += 0.5 * J₊ * conj(phase) * (1-α_dcoups[1])
-        ∂ID22_re[i, j] -= 0.5 * J₊ * phase * (1-α_dcoups[1])
-        ∂ID22_re[j, i] -= 0.5 * J₊ * conj(phase) * (1-α_dcoups[1])
+        ∂ID11_re[i, j] += 0.5 * J₊ * phase * (1-α_dcoups[1, α])
+        ∂ID11_re[j, i] += 0.5 * J₊ * conj(phase) * (1-α_dcoups[1, α])
+        ∂ID22_re[i, j] -= 0.5 * J₊ * phase * (1-α_dcoups[1, α])
+        ∂ID22_re[j, i] -= 0.5 * J₊ * conj(phase) * (1-α_dcoups[1, α])
 
-        ∂ID11_im[i, j] += 0.5 * J₊ * ( 1im) * phase * (1-α_dcoups[1])
-        ∂ID11_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase) * (1-α_dcoups[1])
-        ∂ID22_im[i, j] -= 0.5 * J₊ * (-1im) * phase * (1-α_dcoups[1])
-        ∂ID22_im[j, i] -= 0.5 * J₊ * ( 1im) * conj(phase) * (1-α_dcoups[1])
+        ∂ID11_im[i, j] += 0.5 * J₊ * ( 1im) * phase * (1-α_dcoups[1, α])
+        ∂ID11_im[j, i] += 0.5 * J₊ * (-1im) * conj(phase) * (1-α_dcoups[1, α])
+        ∂ID22_im[i, j] -= 0.5 * J₊ * (-1im) * phase * (1-α_dcoups[1, α])
+        ∂ID22_im[j, i] -= 0.5 * J₊ * ( 1im) * conj(phase) * (1-α_dcoups[1, α])
     end
 end
 
@@ -84,15 +84,15 @@ function ∂ID∂C!(out_re, out_im, sbs::SchwingerBosonSystem, q_reshaped::Vec3,
         j = mod1(i+2, 6)
 
         # Q_link = 0.5 * (... + J₋*(1-α_dcoups[2])*Cs[link])
-        ∂ID11_re[i, j] += 0.5 * J₋ * sign * phase * (1-α_dcoups[2])
-        ∂ID11_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2])
-        ∂ID22_re[i, j] -= 0.5 * J₋ * sign * phase * (1-α_dcoups[2])
-        ∂ID22_re[j, i] -= 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2])
+        ∂ID11_re[i, j] += 0.5 * J₋ * sign * phase * (1-α_dcoups[2, α])
+        ∂ID11_re[j, i] += 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2, α])
+        ∂ID22_re[i, j] -= 0.5 * J₋ * sign * phase * (1-α_dcoups[2, α])
+        ∂ID22_re[j, i] -= 0.5 * J₋ * sign * conj(phase) * (1-α_dcoups[2, α])
 
-        ∂ID11_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase * (1-α_dcoups[2])
-        ∂ID11_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase) * (1-α_dcoups[2])
-        ∂ID22_im[i, j] -= 0.5 * J₋ * sign * (-1im) * phase * (1-α_dcoups[2])
-        ∂ID22_im[j, i] -= 0.5 * J₋ * sign * ( 1im) * conj(phase) * (1-α_dcoups[2])
+        ∂ID11_im[i, j] += 0.5 * J₋ * sign * ( 1im) * phase * (1-α_dcoups[2, α])
+        ∂ID11_im[j, i] += 0.5 * J₋ * sign * (-1im) * conj(phase) * (1-α_dcoups[2, α])
+        ∂ID22_im[i, j] -= 0.5 * J₋ * sign * (-1im) * phase * (1-α_dcoups[2, α])
+        ∂ID22_im[j, i] -= 0.5 * J₋ * sign * ( 1im) * conj(phase) * (1-α_dcoups[2, α])
     end
 
 end
@@ -116,15 +116,15 @@ function ∂ID∂D!(out_re, out_im, sbs::SchwingerBosonSystem, q_reshaped::Vec3,
         j = mod1(i+increment, 6)
 
         # P_link = -0.5 * (... + J₋*(1+α_dcoups[2])*Ds[link])
-        ∂ID12_re[i, j] -= 0.5 * J₋ * phase * (1+α_dcoups[2])
-        ∂ID12_re[j, i] -= 0.5 * J₋ * conj(phase) * (1+α_dcoups[2])
-        ∂ID21_re[i, j] += 0.5 * J₋ * phase * (1+α_dcoups[2])
-        ∂ID21_re[j, i] += 0.5 * J₋ * conj(phase) * (1+α_dcoups[2])
+        ∂ID12_re[i, j] -= 0.5 * J₋ * phase * (1+α_dcoups[2, α])
+        ∂ID12_re[j, i] -= 0.5 * J₋ * conj(phase) * (1+α_dcoups[2, α])
+        ∂ID21_re[i, j] += 0.5 * J₋ * phase * (1+α_dcoups[2, α])
+        ∂ID21_re[j, i] += 0.5 * J₋ * conj(phase) * (1+α_dcoups[2, α])
 
-        ∂ID12_im[i, j] -= 0.5 * J₋ * ( 1im) * phase * (1+α_dcoups[2])
-        ∂ID12_im[j, i] -= 0.5 * J₋ * ( 1im) * conj(phase) * (1+α_dcoups[2])
-        ∂ID21_im[i, j] += 0.5 * J₋ * (-1im) * phase * (1+α_dcoups[2])
-        ∂ID21_im[j, i] += 0.5 * J₋ * (-1im) * conj(phase) * (1+α_dcoups[2])
+        ∂ID12_im[i, j] -= 0.5 * J₋ * ( 1im) * phase * (1+α_dcoups[2, α])
+        ∂ID12_im[j, i] -= 0.5 * J₋ * ( 1im) * conj(phase) * (1+α_dcoups[2, α])
+        ∂ID21_im[i, j] += 0.5 * J₋ * (-1im) * phase * (1+α_dcoups[2, α])
+        ∂ID21_im[j, i] += 0.5 * J₋ * (-1im) * conj(phase) * (1+α_dcoups[2, α])
     end
 
 end
@@ -159,17 +159,17 @@ function inv_interaction_strengths(sbs::SchwingerBosonSystem)
     inv_J₊ = safe_inv(J * (Δ + 1) / 2)
     inv_J₋ = safe_inv(J * (Δ - 1) / 2)
     inv_fα = zeros(24)
-    for α in (1, 2, 3, 13, 14, 15)
-        inv_fα[α] = -inv_J₊ * safe_inv(1 + α_dcoups[1])
+    for (iα, α) in enumerate((1, 2, 3, 13, 14, 15))
+        inv_fα[α] = -inv_J₊ * safe_inv(1 + α_dcoups[1, mod1(iα, 3)])
     end
-    for α in (4, 5, 6, 16, 17, 18)
-        inv_fα[α] = inv_J₊ * safe_inv(1 - α_dcoups[1])
+    for (iα, α) in enumerate((4, 5, 6, 16, 17, 18))
+        inv_fα[α] = inv_J₊ * safe_inv(1 - α_dcoups[1, mod1(iα, 3)])
     end
-    for α in (7, 8, 9, 19, 20, 21)
-        inv_fα[α] = inv_J₋ * safe_inv(1 - α_dcoups[2])
+    for (iα, α) in enumerate((7, 8, 9, 19, 20, 21))
+        inv_fα[α] = inv_J₋ * safe_inv(1 - α_dcoups[2, mod1(iα, 3)])
     end
-    for α in (10, 11, 12, 22, 23, 24)
-        inv_fα[α] = -inv_J₋ * safe_inv(1 + α_dcoups[2])
+    for (iα, α) in enumerate((10, 11, 12, 22, 23, 24))
+        inv_fα[α] = -inv_J₋ * safe_inv(1 + α_dcoups[2, mod1(iα, 3)])
     end
     return inv_fα
 end
