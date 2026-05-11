@@ -4,12 +4,13 @@ using LinearAlgebra
 import StaticArrays: SVector, SMatrix
 using NLsolve
 using Optim
+using HCubature
 
 include("Types.jl")
 export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!, set_classical_mean_fields!
 include("HamiltonianMeanField.jl")
 include("DispersionAndIntensities.jl")
-export excitations, dispersion
+export excitations, dispersion, dssf_mean_field
 include("GradientofHamiltonian.jl")
 
 include("KuboMori.jl")
