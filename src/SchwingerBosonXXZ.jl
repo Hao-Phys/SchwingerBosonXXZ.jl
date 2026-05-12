@@ -1,13 +1,17 @@
 module SchwingerBosonXXZ
 
 using LinearAlgebra
-import StaticArrays: SVector, SMatrix
+import StaticArrays: SVector, SMatrix, setindex
 using NLsolve
 using Optim
 using HCubature
 
 include("Types.jl")
 export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!, set_classical_mean_fields!
+
+include("FiniteSizeTools.jl")
+export q_space_path_sbs
+
 include("HamiltonianMeanField.jl")
 include("DispersionAndIntensities.jl")
 export excitations, dispersion, dssf_mean_field

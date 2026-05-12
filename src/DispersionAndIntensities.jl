@@ -93,7 +93,8 @@ function global_position(i::Int)
 end
 
 # The diagonal element of the dynamical spin structure factor
-function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; opts...)
+function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ, mode::Symbol=:sum; opts...)
+    @assert mode in (:sum, :integration) "mode must be :sum or :integration"
     num_energies = length(energies)
     num_bands = 6
     # Buffers for Bogoliubov transformation and dynamical matrix.
@@ -116,39 +117,78 @@ function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; opts...)
     end
 
     q_reshaped = to_reshaped_rlu(q)
-    ints = hcubature((0,0,0), (1,1,1); opts...) do k_reshaped
-        qpk_reshaped = q_reshaped + k_reshaped
-        dynamical_matrix!(H1, sbs, qpk_reshaped)
-        dynamical_matrix!(H2, sbs, -k_reshaped)
+    if mode == :integration
+        ints = hcubature((0,0,0), (1,1,1); opts...) do k_reshaped
+            qpk_reshaped = q_reshaped + k_reshaped
+            dynamical_matrix!(H1, sbs, qpk_reshaped)
+            dynamical_matrix!(H2, sbs, -k_reshaped)
 
-        disp1 = bogoliubov!(V1, H1)
-        disp2 = bogoliubov!(V2, H2)
+            disp1 = bogoliubov!(V1, H1)
+            disp2 = bogoliubov!(V2, H2)
 
-        # Fill the buffers with zeros
-        Avec .= 0.0
-        corr_buf .= 0.0
+            # Fill the buffers with zeros
+            Avec .= 0.0
+            corr_buf .= 0.0
 
-        for band1 in 1:num_bands
-            v1 = reshape(view(V1, :, band1), 2, 3, 2)
-            for band2 in 1:num_bands
-                v2 = reshape(view(V2, :, band2), 2, 3, 2)
-                for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
-                    Avec[μ, band1, band2] += 0.5 * Avec_pref[α] * σs[μ][σ, σ′] * (v1[σ, α, 2]*v2[σ′, α, 1] + v1[σ′, α, 1]*v2[σ, α, 2])
+            for band1 in 1:num_bands
+                v1 = reshape(view(V1, :, band1), 2, 3, 2)
+                for band2 in 1:num_bands
+                    v2 = reshape(view(V2, :, band2), 2, 3, 2)
+                    for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
+                        Avec[μ, band1, band2] += 0.5 * Avec_pref[α] * σs[μ][σ, σ′] * (v1[σ, α, 2]*v2[σ′, α, 1] + v1[σ′, α, 1]*v2[σ, α, 2])
+                    end
+                end
+            end
+
+            for (ie, energy) in enumerate(energies)
+                for μ in 1:3
+                    for band1 in 1:num_bands, band2 in 1:num_bands
+                        corr_buf[μ, ie] += abs2(Avec[μ, band1, band2]) * lorentzian(energy - disp1[band1] - disp2[band2], Γ)
+                    end
+                end
+            end
+
+            return SVector{3num_energies}(vec(corr_buf))
+        end
+
+        ret = reshape(ints[1], 3, num_energies)
+    else
+        (; L) = sbs
+        k_reshapes = [Vec3(i/L, j/L, 0.0) for i in 0:L-1, j in 0:L-1]
+        ret = zeros(3, num_energies)
+
+        for k_reshaped in k_reshapes
+            qpk_reshaped = q_reshaped + k_reshaped
+            dynamical_matrix!(H1, sbs, qpk_reshaped)
+            dynamical_matrix!(H2, sbs, -k_reshaped)
+
+            disp1 = bogoliubov!(V1, H1)
+            disp2 = bogoliubov!(V2, H2)
+
+            # Fill the buffers with zeros
+            Avec .= 0.0
+
+            for band1 in 1:num_bands
+                v1 = reshape(view(V1, :, band1), 2, 3, 2)
+                for band2 in 1:num_bands
+                    v2 = reshape(view(V2, :, band2), 2, 3, 2)
+                    for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
+                        Avec[μ, band1, band2] += 0.5 * Avec_pref[α] * σs[μ][σ, σ′] * (v1[σ, α, 2]*v2[σ′, α, 1] + v1[σ′, α, 1]*v2[σ, α, 2])
+                    end
+                end
+            end
+
+            for (ie, energy) in enumerate(energies)
+                for μ in 1:3
+                    for band1 in 1:num_bands, band2 in 1:num_bands
+                        ret[μ, ie] += abs2(Avec[μ, band1, band2]) * lorentzian(energy - disp1[band1] - disp2[band2], Γ)
+                    end
                 end
             end
         end
 
-        for (ie, energy) in enumerate(energies)
-            for μ in 1:3
-                for band1 in 1:num_bands, band2 in 1:num_bands
-                    corr_buf[μ, ie] += abs2(Avec[μ, band1, band2]) * lorentzian(energy - disp1[band1] - disp2[band2], Γ)
-                end
-            end
-        end
-
-        return SVector{3num_energies}(vec(corr_buf))
+        ret /= L^2
     end
 
-    ret = reshape(ints[1], 3, num_energies)
     return ret
 end
