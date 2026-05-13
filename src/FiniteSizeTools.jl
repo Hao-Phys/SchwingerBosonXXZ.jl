@@ -70,7 +70,7 @@ function q_space_path_sbs(sbs::SchwingerBosonSystem, qs; labels=nothing)
 
     push!(markers, length(path))
 
-    labels = @something labels vec3_to_string.(qs)
+    labels = @something labels string.(qs)
     xticks = (markers, labels)
     return QPath(path, xticks)
 end
