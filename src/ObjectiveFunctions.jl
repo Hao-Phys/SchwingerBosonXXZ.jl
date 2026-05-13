@@ -183,7 +183,7 @@ end
 # We need to shift μ₀ by `c_shift` to make sure that the minimum mode
 # is greater or equal to the condensation threshold ϵ.
 # This function is used in the optimization of μ₀ for a gradient-free optimizer
-function f_y!(sbs::SchwingerBosonSystem, aux::OptimAux, y; tol=1e-12, max_iters=1000)
+function f_y!(sbs::SchwingerBosonSystem, aux::CondensationAux, y; tol=1e-12, max_iters=1000)
     try
         positive_shift,c_shift, conden_index = search_for_condensation_shift!(sbs, y; tol, max_iters)
         aux.positive_shift = positive_shift
@@ -213,7 +213,7 @@ function variational_free_energy(sbs::SchwingerBosonSystem; options = Optim.Opti
     Ds = mean_fields[10:12]
 
     μ0 = copy(real(sbs.mean_fields[13:15]))
-    aux = OptimAux(0.0, 0.0, nothing)
+    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
     optimize_μ0!(sbs, μ0, aux; options, tol, max_iters)
     den_mat_conden = condensation_results!(sbs, aux)
     μ0_new = copy(real(sbs.mean_fields[13:15]))

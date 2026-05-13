@@ -7,7 +7,7 @@ function self_consistent_mean_fields!(f, ϕ, sbs::SchwingerBosonSystem; options_
     V = zeros(ComplexF64, 12, 12)
 
     μ0 = copy(real(sbs.mean_fields[13:15]))
-    aux = OptimAux(0.0, 0.0, nothing)
+    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
     optimize_μ0!(sbs, μ0, aux; options=options_μ, tol, max_iters)
     den_mat_conden = condensation_results!(sbs, aux)
 

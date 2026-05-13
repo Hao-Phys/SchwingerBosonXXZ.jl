@@ -6,7 +6,7 @@
 function expectation_values(sbs::SchwingerBosonSystem;
     options = Optim.Options(show_trace=false, iterations=1000), tol=1e-8, max_iters=100)
 
-    aux = OptimAux(0.0, 0.0, nothing)
+    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
     μ0s = copy(real(sbs.mean_fields[13:15]))
     optimize_μ0!(sbs, μ0s, aux; options, tol, max_iters)
     den_mat_conden = condensation_results!(sbs, aux)

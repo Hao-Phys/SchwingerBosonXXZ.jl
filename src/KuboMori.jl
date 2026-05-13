@@ -20,7 +20,7 @@ function single_particle_density_matrix!(P::Matrix{ComplexF64}, D::Matrix{Comple
     end
 end
 
-function condensation_results!(sbs::SchwingerBosonSystem, aux::OptimAux)
+function condensation_results!(sbs::SchwingerBosonSystem, aux::CondensationAux)
     (; condensation_ϵ, L, S) = sbs
     conden_index = aux.conden_index
     if isnothing(conden_index)
@@ -66,6 +66,8 @@ function condensation_results!(sbs::SchwingerBosonSystem, aux::OptimAux)
             v = view(V, :, index)
             tmp .+= ξ * Nu * (v * v' * Ĩ)
         end
+        aux.ξ = ξ
+        aux.num_conden = num_cs
         return tmp
     else
         @warn "Negative condensate fraction detected: ξ = $ξ. Reoptimizing μ₀ without the condensation shift to find the true minimum in the normal phase."

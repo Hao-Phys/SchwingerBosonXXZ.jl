@@ -211,3 +211,65 @@ function expectation_values_legacy(sbs::SchwingerBosonSystem;
 
     return mean_fields, ns, Ss_exps
 end
+
+function dssf_mean_field_integration(sbs::SchwingerBosonSystem, q, energies, Γ; opts...)
+    num_energies = length(energies)
+    num_bands = 6
+
+    # Buffers for Bogoliubov transformation and dynamical matrix.
+    # H1, V1 for q+k
+    H1 = zeros(ComplexF64, 2num_bands, 2num_bands)
+    V1 = zeros(ComplexF64, 2num_bands, 2num_bands)
+    # H2, V2 for -k
+    H2 = zeros(ComplexF64, 2num_bands, 2num_bands)
+    V2 = zeros(ComplexF64, 2num_bands, 2num_bands)
+
+    Avec_pref = zeros(ComplexF64, 3)
+    Avec = zeros(ComplexF64, 3, num_bands, num_bands)
+    corr_buf = zeros(3, num_energies)
+
+    q_global = recipvecs_origin * q
+
+    for i in 1:3
+        r_i = global_position(i)
+        Avec_pref[i] = exp(-im * dot(q_global, r_i))
+    end
+
+    q_reshaped = to_reshaped_rlu(q)
+    ints = hcubature((0,0,0), (1,1,1); opts...) do k_reshaped
+        qpk_reshaped = q_reshaped + k_reshaped
+        dynamical_matrix!(H1, sbs, qpk_reshaped)
+        dynamical_matrix!(H2, sbs, -k_reshaped)
+
+        disp1 = bogoliubov!(V1, H1)
+        disp2 = bogoliubov!(V2, H2)
+
+        # Fill the buffers with zeros
+        Avec .= 0.0
+        corr_buf .= 0.0
+
+        for band1 in 1:num_bands
+            v1 = reshape(view(V1, :, band1), 2, 3, 2)
+            for band2 in 1:num_bands
+                v2 = reshape(view(V2, :, band2), 2, 3, 2)
+                for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
+                    Avec[μ, band1, band2] += 0.5 * Avec_pref[α] * σs[μ][σ, σ′] * (v1[σ, α, 2]*v2[σ′, α, 1] + v1[σ′, α, 1]*v2[σ, α, 2])
+                end
+            end
+        end
+
+        for (ie, energy) in enumerate(energies)
+            for μ in 1:3
+                for band1 in 1:num_bands, band2 in 1:num_bands
+                    corr_buf[μ, ie] += abs2(Avec[μ, band1, band2]) * lorentzian(energy - disp1[band1] - disp2[band2], Γ)
+                end
+            end
+        end
+
+        return SVector{3num_energies}(vec(corr_buf))
+    end
+
+    ret = reshape(ints[1], 3, num_energies)
+
+    return ret
+end

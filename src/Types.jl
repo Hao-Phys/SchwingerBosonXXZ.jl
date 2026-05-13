@@ -49,10 +49,12 @@ function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
     end
 end
 
-mutable struct OptimAux
+mutable struct CondensationAux
     positive_shift::Float64
     c_shift::Float64
     conden_index::Union{Int, Nothing}
+    ξ::Float64
+    num_conden::Int
 end
 
 function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
