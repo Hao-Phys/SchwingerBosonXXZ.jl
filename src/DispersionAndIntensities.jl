@@ -175,7 +175,8 @@ function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; options_μ 
         end
     end
 
-    ret /= L^2
+    # Normalize to total number of sites
+    ret /= 3L^2
 
     return ret
 end
