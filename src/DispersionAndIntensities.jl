@@ -95,7 +95,7 @@ end
 # The diagonal element of the dynamical spin structure factor
 # Here we perform the finite-size summation over the Brillouin zone, based on the linear system size `L` in `sbs`.
 # Warning: To get physically correct results, `include_condensation` should be set to `true`. We leave it as an option for testing purposes, but it is not recommended to set it to `false` when analyzing results.
-function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; options_μ = Optim.Options(show_trace=false, iterations=100), tol=1e-12, max_iters=1000, include_condensation::Bool=true, opts...)
+function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; options_μ = Optim.Options(show_trace=false, iterations=100), tol=1e-12, max_iters=1000, include_condensation::Bool=true)
 
     num_energies = length(energies)
     num_bands = 6
