@@ -78,7 +78,7 @@ function dispersion(sbs::SchwingerBosonSystem, qs)
     return reshape(disp, 6, size(qs)...)
 end
 
-@inline lorentzian(x, Γ) = (Γ / 2) / (x^2 + (Γ / 2)^2)
+@inline lorentzian(x, Γ) = (1/π) * (Γ / 2) / (x^2 + (Γ / 2)^2)
 
 function global_position(i::Int)
     if i == 1
