@@ -219,7 +219,6 @@ function variational_free_energy(sbs::SchwingerBosonSystem; options = Optim.Opti
     μ0_new = copy(real(sbs.mean_fields[13:15]))
 
     for α in 1:3
-        f += -3 * (-J₊ * (1+α_dcoups[1, α]) * abs2(As[α]) + J₊ * (1-α_dcoups[1, α]) * abs2(Bs[α]) + J₋ * (1-α_dcoups[2, α]) * abs2(Cs[α]) - J₋ * (1+α_dcoups[2, α]) * abs2(Ds[α]))
         f += (1+2S) * μ0_new[α]
     end
 
