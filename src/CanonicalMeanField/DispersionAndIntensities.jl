@@ -175,8 +175,10 @@ function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; options_μ 
         end
     end
 
-    # Normalize to total number of sites
-    ret /= 3L^2
+    # Normalize by the total number of sites, N_s = 3L^2.
+    # The extra factor 1/2 avoids double counting identical two-spinon
+    # final states in the unrestricted ordered sum over (k, n1, n2).
+    ret /= 6L^2
 
     return ret
 end
