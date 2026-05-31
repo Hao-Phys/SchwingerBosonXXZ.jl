@@ -147,7 +147,7 @@ function ∂ID∂S!(out, α::Int, μ::Int, sbs::SchwingerBosonSystem)
     view1 = view(out, index:index+1, index:index+1)
     view1 .=  S * σs[μ]
     view2 = view(out, index+6:index+7, index+6:index+7)
-    view2 .= -S * σs[μ]
+    view2 .= -S * transpose(σs[μ])
 end
 
 # The inverse of the "interaction" strengths,
