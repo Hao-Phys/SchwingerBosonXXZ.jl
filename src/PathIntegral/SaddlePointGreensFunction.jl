@@ -1,60 +1,148 @@
-
+# src/PathIntegral/SaddlePointGreensFunction.jl
 """
-    Green_SP_normal(sbs, q, z, aux=nothing)
+    Green_SP_normal_residues(sbs, q, aux=nothing)
 
-Return the normal part of the saddle-point Green's function,
+Return the spectral data for the normal part of the saddle-point Green's
+function.
 
-    G_SP^n(q, z) = sum_l C_l(q) / (ϵ_l(q) - z),
+The returned objects are
 
-with the pinned condensate modes removed when `aux` is available.
+    ϵs, V, weights
 
-Here `q` is assumed to already be in the reshaped reciprocal-lattice
-coordinate used by `dynamical_matrix!`.
+such that
+
+    G_SP_normal(q, z)
+        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+
+Here `q` must already be in the reshaped reciprocal-lattice coordinate used by
+`dynamical_matrix!`.
+
+If condensation data is available, the pinned ±ϵ modes are removed from the
+normal sector by setting their weights to zero.
 """
-function Green_SP_normal(
+function Green_SP_normal_residues(
     sbs::SchwingerBosonSystem,
     q::Vec3,
-    z::Number,
     aux::Union{Nothing, CondensationAux} = nothing,
 )
     H = zeros(ComplexF64, 12, 12)
     V = similar(H)
 
-    # Reuse the canonical BdG construction.
     dynamical_matrix!(H, sbs, q)
 
-    # bogoliubov! may overwrite H, but H is not needed afterwards.
     ϵs = try
         bogoliubov!(V, H)
     catch
         error("BdG spectrum is unstable at q = $q.")
     end
 
-    G = zero(H)
+    weights = ones(Float64, length(ϵs))
+
+    if aux !== nothing && aux.conden_index !== nothing
+        for l in eachindex(ϵs)
+            if isapprox(abs(ϵs[l]), sbs.condensation_ϵ; atol = 1e-8)
+                weights[l] = 0.0
+            end
+        end
+    end
+
+    return ϵs, V, weights
+end
+
+
+"""
+    Green_SP_condensed_residues(sbs, q, aux=nothing)
+
+Return the spectral data for the condensate part of the saddle-point Green's
+function.
+
+The returned objects are
+
+    ϵs, V, weights
+
+such that
+
+    G_SP_condensed(q, z)
+        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+
+The condensate contribution has support only in the condensate momentum sector
+encoded by `aux.conden_index`.
+
+In the canonical soft-minimum treatment, ξ is only the enhanced occupation of
+the pinned condensate mode. Since `Green_SP_normal_residues` removes the pinned
+±ϵ modes entirely, the condensate residue weight used here is ξ + 1.
+"""
+function Green_SP_condensed_residues(
+    sbs::SchwingerBosonSystem,
+    q::Vec3,
+    aux::Union{Nothing, CondensationAux} = nothing,
+)
+    H = zeros(ComplexF64, 12, 12)
+    V = similar(H)
+
+    dynamical_matrix!(H, sbs, q)
+
+    ϵs = try
+        bogoliubov!(V, H)
+    catch
+        error("BdG spectrum is unstable at q = $q.")
+    end
+
+    weights = zeros(Float64, length(ϵs))
+
+    if aux === nothing || aux.conden_index === nothing
+        return ϵs, V, weights
+    end
+
+    ξtot = aux.ξ + 1
+    ϵ = sbs.condensation_ϵ
 
     for l in eachindex(ϵs)
-        # In the canonical soft-minimum treatment, ξ is only the enhanced
-        # occupation of the pinned ±ϵ condensate modes. Those pinned modes
-        # still also carry the ordinary normal occupation.
-        #
-        # In the path-integral convention used here, Green_SP_condensed carries
-        # the total pinned-mode weight. Therefore, when condensate information
-        # is available, we remove the pinned ±ϵ modes from Green_SP_normal to
-        # avoid double counting.
-        if aux !== nothing && aux.conden_index !== nothing
-            isapprox(abs(ϵs[l]), sbs.condensation_ϵ; atol = 1e-8) && continue
+        if isapprox(abs(ϵs[l]), ϵ; atol = 1e-8)
+            weights[l] = ξtot
         end
+    end
 
-        s = l <= 6 ? 1 : -1
+    return ϵs, V, weights
+end
+
+
+"""
+    Green_SP_from_residues(ϵs, V, weights, z)
+
+Construct the Green's-function matrix from spectral pole data,
+
+    G(q, z) = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+
+The factor `Ĩ[l,l]` is the scalar metric sign appearing in the residue
+
+    C_l = s_l v_l v_l†.
+
+With the BdG ordering used here, `Ĩ[l,l]` is +1 for the six positive-energy
+modes and -1 for the six negative-energy modes.
+"""
+function Green_SP_from_residues(
+    ϵs::AbstractVector,
+    V::AbstractMatrix,
+    weights::AbstractVector,
+    z::Number,
+)
+    G = zeros(ComplexF64, size(V, 1), size(V, 1))
+
+    for l in eachindex(ϵs)
+        iszero(weights[l]) && continue
+
+        # Ĩ[l,l] is the Nambu metric sign s_l in the residue
+        # C_l = s_l v_l v_l†.
+        coeff = weights[l] * Ĩ[l, l] / (ϵs[l] - z)
         v = @view V[:, l]
-        coeff = s / (ϵs[l] - z)
 
         # Equivalent to the less efficient direct expression
         #
         #     G .+= coeff .* (v * v')
         #
-        # but written as an explicit loop to avoid allocating the 12×12
-        # outer-product matrix for every BdG mode.
+        # but written explicitly to avoid allocating one 12×12 outer-product
+        # matrix for every BdG pole.
         @inbounds for j in axes(G, 2), i in axes(G, 1)
             G[i, j] += coeff * v[i] * conj(v[j])
         end
@@ -65,16 +153,25 @@ end
 
 
 """
+    Green_SP_normal(sbs, q, z, aux=nothing)
+
+Return the normal part of the saddle-point Green's function as a matrix.
+"""
+function Green_SP_normal(
+    sbs::SchwingerBosonSystem,
+    q::Vec3,
+    z::Number,
+    aux::Union{Nothing, CondensationAux} = nothing,
+)
+    ϵs, V, weights = Green_SP_normal_residues(sbs, q, aux)
+    return Green_SP_from_residues(ϵs, V, weights, z)
+end
+
+
+"""
     Green_SP_condensed(sbs, q, z, aux=nothing)
 
-Return the condensate part of the saddle-point Green's function,
-
-    G_SP^c(q, z) = δ_{q,q_c} sum_i (ξ_i + 1) C_i^c / (ϵ_i^c - z).
-
-Here `q_c` is the condensate momentum encoded by `aux.conden_index`.
-
-If `aux` is `nothing`, or if no condensate is present, this returns the zero
-matrix.
+Return the condensate part of the saddle-point Green's function as a matrix.
 """
 function Green_SP_condensed(
     sbs::SchwingerBosonSystem,
@@ -82,50 +179,6 @@ function Green_SP_condensed(
     z::Number,
     aux::Union{Nothing, CondensationAux} = nothing,
 )
-    H = zeros(ComplexF64, 12, 12)
-    G = zero(H)
-
-    aux === nothing && return G
-    aux.conden_index === nothing && return G
-
-    V = similar(H)
-
-    # The condensate contribution is localized at q = q_c. We do not add a
-    # separate norm(q) check here, because the relevant condensate momentum
-    # sector is already encoded by aux.conden_index.
-    dynamical_matrix!(H, sbs, q)
-
-    ϵs = try
-        bogoliubov!(V, H)
-    catch
-        error("BdG spectrum is unstable at q = $q.")
-    end
-
-    ξ = aux.ξ
-    ϵ = sbs.condensation_ϵ
-
-    for l in eachindex(ϵs)
-        isapprox(abs(ϵs[l]), ϵ; atol = 1e-8) || continue
-
-        s = l <= 6 ? 1 : -1
-        v = @view V[:, l]
-
-        # In the canonical soft-minimum treatment, ξ is only the enhanced
-        # occupation of the pinned condensate mode. Since Green_SP_normal
-        # removes the pinned ±ϵ modes entirely, the condensate Green's function
-        # must carry the total pinned-mode weight, namely ξ + 1.
-        coeff = (ξ + 1) * s / (ϵs[l] - z)
-
-        # Equivalent to the less efficient direct expression
-        #
-        #     G .+= coeff .* (v * v')
-        #
-        # but written as an explicit loop to avoid allocating the 12×12
-        # outer-product matrix for every BdG mode.
-        @inbounds for j in axes(G, 2), i in axes(G, 1)
-            G[i, j] += coeff * v[i] * conj(v[j])
-        end
-    end
-
-    return G
+    ϵs, V, weights = Green_SP_condensed_residues(sbs, q, aux)
+    return Green_SP_from_residues(ϵs, V, weights, z)
 end
