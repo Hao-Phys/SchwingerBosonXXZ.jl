@@ -33,4 +33,6 @@ include("CanonicalMeanField/Legacy.jl")
 include("CanonicalMeanField/SelfConsistentEqns.jl")
 export solve_self_consistent_mean_fields_condensed!
 
+include("PathIntegral/SaddlePointGreensFunction.jl")
+
 end
