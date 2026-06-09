@@ -92,27 +92,63 @@ function global_position(i::Int)
     end
 end
 
-# The diagonal element of the dynamical spin structure factor
-# Here we perform the finite-size summation over the Brillouin zone, based on the linear system size `L` in `sbs`.
-# Warning: To get physically correct results, `include_condensation` should be set to `true`. We leave it as an option for testing purposes, but it is not recommended to set it to `false` when analyzing results.
-function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; options_μ = Optim.Options(show_trace=false, iterations=100), tol=1e-12, max_iters=1000, include_condensation::Bool=true)
+"""
+    dssf_mean_field(
+        sbs::SchwingerBosonSystem,
+        q,
+        energies,
+        Γ;
+        options_μ = Optim.Options(show_trace=false, iterations=100),
+        tol = 1e-12,
+        max_iters = 1000,
+        include_condensation::Bool = true,
+    )
 
+Compute the diagonal components of the dynamical spin structure factor at the
+mean-field level using the canonical Bogoliubov formalism.
+
+Returns
+
+    ret_normal, ret_condensate
+
+where both arrays have size `3 × length(energies)`.
+
+The split follows the original finite-size condensate convention: the
+condensate sector is identified by
+
+    ik == aux.conden_index.
+
+In this convention, the pinned condensate line is the second canonical line,
+namely the `V2` / `-k` line. Therefore the condensate contribution is assigned
+when `band2` is in the pinned condensate bands.
+
+The pinned `band2` contribution is removed from the normal sector and assigned
+to `ret_condensate` with finite-size weight `(aux.ξ + 1) * L^2`.
+"""
+function dssf_mean_field(
+    sbs::SchwingerBosonSystem,
+    q,
+    energies,
+    Γ;
+    options_μ = Optim.Options(show_trace=false, iterations=100),
+    tol = 1e-12,
+    max_iters = 1000,
+    include_condensation::Bool = true,
+)
     num_energies = length(energies)
     num_bands = 6
 
-    # Determine the condensation
+    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
+
     if include_condensation
         μ0 = copy(real(sbs.mean_fields[13:15]))
-        aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
-        optimize_μ0!(sbs, μ0, aux; options=options_μ, tol, max_iters)
+        optimize_μ0!(sbs, μ0, aux; options=options_μ, tol=tol, max_iters=max_iters)
         condensation_results!(sbs, aux)
     end
 
-    # Buffers for Bogoliubov transformation and dynamical matrix.
-    # H1, V1 for q+k
     H1 = zeros(ComplexF64, 2num_bands, 2num_bands)
     V1 = zeros(ComplexF64, 2num_bands, 2num_bands)
-    # H2, V2 for -k
+
     H2 = zeros(ComplexF64, 2num_bands, 2num_bands)
     V2 = zeros(ComplexF64, 2num_bands, 2num_bands)
 
@@ -121,64 +157,96 @@ function dssf_mean_field(sbs::SchwingerBosonSystem, q, energies, Γ; options_μ 
 
     q_global = recipvecs_origin * q
 
-    for i in 1:3
-        r_i = global_position(i)
-        Avec_pref[i] = exp(-im * dot(q_global, r_i))
+    for α in 1:3
+        rα = global_position(α)
+        Avec_pref[α] = exp(-im * dot(q_global, rα))
     end
 
     q_reshaped = to_reshaped_rlu(q)
 
     (; L) = sbs
     k_reshapes = [Vec3(i/L, j/L, 0.0) for i in 0:L-1, j in 0:L-1, _ in 1:1]
-    ret = zeros(3, num_energies)
+
+    ret_normal = zeros(Float64, 3, num_energies)
+    ret_condensate = zeros(Float64, 3, num_energies)
+
+    has_condensate = include_condensation && aux.conden_index !== nothing
+
+    if has_condensate
+        condensed_bands = (num_bands - aux.num_conden + 1):num_bands
+        condensate_weight = (aux.ξ + 1) * L^2
+    else
+        condensed_bands = 1:0
+        condensate_weight = 0.0
+    end
 
     for (ik, k_reshaped) in enumerate(k_reshapes)
         qpk_reshaped = q_reshaped + k_reshaped
+
+        # Canonical line 1: q + k
+        # Canonical line 2: -k
         dynamical_matrix!(H1, sbs, qpk_reshaped)
         dynamical_matrix!(H2, sbs, -k_reshaped)
 
         disp1 = bogoliubov!(V1, H1)
         disp2 = bogoliubov!(V2, H2)
 
-        # Fill the buffers with zeros
         Avec .= 0.0
 
         for band1 in 1:num_bands
             v1 = reshape(view(V1, :, band1), 2, 3, 2)
+
             for band2 in 1:num_bands
                 v2 = reshape(view(V2, :, band2), 2, 3, 2)
+
                 for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
-                    Avec[μ, band1, band2] += 0.5 * Avec_pref[α] * σs[μ][σ, σ′] * (v1[σ, α, 2]*v2[σ′, α, 1] + v1[σ′, α, 1]*v2[σ, α, 2])
+                    Avec[μ, band1, band2] +=
+                        0.5 *
+                        Avec_pref[α] *
+                        σs[μ][σ, σ′] *
+                        (
+                            v1[σ, α, 2] * v2[σ′, α, 1] +
+                            v1[σ′, α, 1] * v2[σ, α, 2]
+                        )
                 end
             end
         end
 
-        if include_condensation && ik == aux.conden_index
-            (; ξ, num_conden) = aux
-            for band1 in num_bands-num_conden+1:num_bands
-                v1 = reshape(view(V1, :, band1), 2, 3, 2)
-                for band2 in num_bands-num_conden+1:num_bands
-                    v2 = reshape(view(V2, :, band2), 2, 3, 2)
-                    for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
-                        Avec[μ, band1, band2] += ξ * L^2 * 0.5 * Avec_pref[α] * σs[μ][σ, σ′] * (v1[σ, α, 2]*v2[σ′, α, 1] + v1[σ′, α, 1]*v2[σ, α, 2])
-                    end
-                end
-            end
-        end
+        is_condensed_sector = has_condensate && ik == aux.conden_index
 
         for (ie, energy) in enumerate(energies)
             for μ in 1:3
                 for band1 in 1:num_bands, band2 in 1:num_bands
-                    ret[μ, ie] += abs2(Avec[μ, band1, band2]) * lorentzian(energy - disp1[band1] - disp2[band2], Γ)
+                    band2_condensed =
+                        is_condensed_sector &&
+                        band2 in condensed_bands
+
+                    if band2_condensed
+                        # The pinned V2 / -k line is removed from the normal
+                        # sector and reassigned to the condensate sector.
+                        #
+                        # The condensed line carries zero physical energy, so
+                        # the peak is placed at the normal line energy disp1.
+                        ΔE = disp1[band1]
+
+                        ret_condensate[μ, ie] +=
+                            condensate_weight *
+                            abs2(Avec[μ, band1, band2]) *
+                            lorentzian(energy - ΔE, Γ)
+                    else
+                        ΔE = disp1[band1] + disp2[band2]
+
+                        ret_normal[μ, ie] +=
+                            abs2(Avec[μ, band1, band2]) *
+                            lorentzian(energy - ΔE, Γ)
+                    end
                 end
             end
         end
     end
 
-    # Normalize by the total number of sites, N_s = 3L^2.
-    # The extra factor 1/2 avoids double counting identical two-spinon
-    # final states in the unrestricted ordered sum over (k, n1, n2).
-    ret /= 6L^2
+    ret_normal ./= 6L^2
+    ret_condensate ./= 6L^2
 
-    return ret
+    return ret_normal, ret_condensate
 end
