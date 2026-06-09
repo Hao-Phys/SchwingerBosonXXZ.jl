@@ -34,5 +34,8 @@ include("CanonicalMeanField/SelfConsistentEqns.jl")
 export solve_self_consistent_mean_fields_condensed!
 
 include("PathIntegral/SaddlePointGreensFunction.jl")
+include("PathIntegral/ExternalVertices.jl")
+include("PathIntegral/DSSF_SP.jl")
+export dssf_SP
 
 end
