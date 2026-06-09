@@ -38,4 +38,6 @@ include("PathIntegral/ExternalVertices.jl")
 include("PathIntegral/DSSF_SP.jl")
 export dssf_SP
 
+include("PathIntegral/InternalVertices.jl")
+
 end
