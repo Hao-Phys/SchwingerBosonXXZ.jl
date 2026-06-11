@@ -35,9 +35,12 @@ export solve_self_consistent_mean_fields_condensed!
 
 include("PathIntegral/SaddlePointGreensFunction.jl")
 include("PathIntegral/ExternalVertices.jl")
-include("PathIntegral/DSSF_SP.jl")
-export dssf_SP
 
 include("PathIntegral/InternalVertices.jl")
+include("PathIntegral/RPAPropagator.jl")
+include("PathIntegral/ExternalInternalBubble.jl")
+
+include("PathIntegral/DSSF.jl")
+export dssf_SP, dssf_FL
 
 end

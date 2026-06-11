@@ -204,3 +204,155 @@ function dssf_SP(
 
     return ret_normal, ret_condensate
 end
+
+"""
+    dssf_FL(
+        sbs::SchwingerBosonSystem,
+        q,
+        energies,
+        Γ;
+        options_μ = Optim.Options(show_trace=false, iterations=100),
+        tol = 1e-12,
+        max_iters = 1000,
+        include_condensation::Bool = true,
+        Nflavor::Real = 2,
+    )
+
+Compute the zero-temperature Gaussian-fluctuation counter-diagram contribution
+to the dynamical spin structure factor.
+
+This implements the normal-normal part of the Fig. 1(b) contribution only:
+
+    χ_FL^{μμ}(q,ω) = (1/N) S_α^{1+1;μ}(q,ω)
+                         D_{αβ}(q,ω)
+                         S_β^{1+1;μ}(-q,-ω)
+
+with
+
+    D(q,ω) = [Π0(q) - Π(q,ω)]^{-1}.
+
+The returned array has size `3 × length(energies)`.
+
+Current limitation:
+the condensate-normal and normal-condensate pieces of the external-internal
+bubbles, and the condensate contribution to the RPA kernel, are not included
+yet. The function nevertheless prepares the condensation auxiliary data so that
+these pieces can be added later without changing the outer structure.
+"""
+function dssf_FL(
+    sbs::SchwingerBosonSystem,
+    q,
+    energies,
+    Γ;
+    options_μ = Optim.Options(show_trace=false, iterations=100),
+    tol = 1e-12,
+    max_iters = 1000,
+    include_condensation::Bool = true,
+    Nflavor::Real = 2,
+)
+    num_energies = length(energies)
+    ret_FL = zeros(Float64, 3, num_energies)
+
+    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
+
+    if include_condensation
+        μ0 = copy(real(sbs.mean_fields[13:15]))
+        optimize_μ0!(sbs, μ0, aux; options=options_μ, tol=tol, max_iters=max_iters)
+        condensation_results!(sbs, aux)
+    end
+
+    (; L) = sbs
+
+    q_reshaped = to_reshaped_rlu(q)
+
+    k_grid = [Vec3(i/L, j/L, 0.0) for i in 0:L-1, j in 0:L-1, _ in 1:1]
+
+    fields = internal_field_basis()
+    nϕ = length(fields)
+
+    Π0 = zeros(ComplexF64, nϕ, nϕ)
+    Π = zeros(ComplexF64, nϕ, nϕ)
+    K = zeros(ComplexF64, nϕ, nϕ)
+
+    Splus = zeros(ComplexF64, nϕ)
+    Sminus = zeros(ComplexF64, nϕ)
+
+    Pi0!(Π0, sbs, fields)
+
+    # For the normal-only fluctuation calculation, use the regular normal
+    # residue provider. In the condensed phase, passing `aux` lets the lower
+    # Green-function layer remove or regularize pinned condensate poles, while
+    # the explicit condensate-normal pieces are left for a later implementation.
+    aux_normal = include_condensation && aux.conden_index !== nothing ? aux : nothing
+
+    for (ie, energy) in enumerate(energies)
+
+        # Retarded RPA kernel:
+        #
+        #   K(q,ω) = Π0(q) - Π^R(q,ω)
+        #
+        # At this stage `polarization!` includes only the normal-normal
+        # contribution.
+        polarization!(
+            Π,
+            sbs,
+            fields,
+            k_grid,
+            q_reshaped,
+            energy;
+            η = Γ,
+            Nflavor = Nflavor,
+            aux = aux_normal,
+        )
+
+        rpa_kernel!(K, Π0, Π)
+
+        for μ in 1:3
+            # First bubble:
+            #
+            #   Splus[α] = S^{1+1;μ,R}_α(q, ω)
+            external_internal_bubble!(
+                Splus,
+                sbs,
+                fields,
+                k_grid,
+                q,
+                q_reshaped,
+                energy,
+                μ;
+                η = Γ,
+                aux = aux_normal,
+            )
+
+            # Second bubble:
+            #
+            #   Sminus[α] = S^{1+1;μ,R}_α(-q, -ω)
+            #
+            # The sign of `η` is negative because this factor is evaluated
+            # after the full retarded continuation of the product, giving the
+            # denominator -ω - i0⁺ + ... in the second bubble.
+            external_internal_bubble!(
+                Sminus,
+                sbs,
+                fields,
+                k_grid,
+                -q,
+                -q_reshaped,
+                -energy,
+                μ;
+                η = -Γ,
+                aux = aux_normal,
+            )
+
+            # χ_FL = (1/N) Splus^T D Sminus
+            #
+            # Use transpose, not adjoint, because this is an index contraction
+            # over auxiliary-field labels, not a Hermitian inner product.
+            χ_FL = (1 / Nflavor) * (transpose(Splus) * (K \ Sminus))
+
+            ret_FL[μ, ie] = -imag(χ_FL) / π
+        end
+    end
+
+    return ret_FL
+end

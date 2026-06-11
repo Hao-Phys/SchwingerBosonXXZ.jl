@@ -29,8 +29,10 @@ function internal_vertices!(
     V .= 0.0 + 0.0im
 
     for σ in 1:2
-        V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += im
-        V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += im
+        # V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += im
+        # V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += im
+        V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += -1
+        V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += -1
     end
 
     return V
