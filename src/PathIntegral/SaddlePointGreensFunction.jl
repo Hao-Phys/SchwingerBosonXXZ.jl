@@ -5,14 +5,10 @@
 Return the spectral data for the normal part of the saddle-point Green's
 function.
 
-The returned objects are
-
-    ϵs, V, weights
-
-such that
+The returned objects are `ϵs, V, weights` such that
 
     G_SP_normal(q, z)
-        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+      = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 Here `q` must already be in the reshaped reciprocal-lattice coordinate used by
 `dynamical_matrix!`.
@@ -56,21 +52,17 @@ end
 Return the spectral data for the condensate part of the saddle-point Green's
 function.
 
-The returned objects are
-
-    ϵs, V, weights
-
-such that
+The returned objects are `ϵs, V, weights` such that
 
     G_SP_condensed(q, z)
-        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+      = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 The condensate contribution has support only in the condensate momentum sector
 encoded by `aux.conden_index`.
 
 In the canonical soft-minimum treatment, ξ is only the enhanced occupation of
 the pinned condensate mode. Since `Green_SP_normal_residues` removes the pinned
-±ϵ modes entirely, the condensate residue weight used here is ξ + 1.
+±ϵ modes entirely, the condensate residue weight used here is `ξ + 1`.
 """
 function Green_SP_condensed_residues(
     sbs::SchwingerBosonSystem,
@@ -115,11 +107,8 @@ Construct the Green's-function matrix from spectral pole data,
     G(q, z) = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 The factor `Ĩ[l,l]` is the scalar metric sign appearing in the residue
-
-    C_l = s_l v_l v_l†.
-
-With the BdG ordering used here, `Ĩ[l,l]` is +1 for the six positive-energy
-modes and -1 for the six negative-energy modes.
+`C_l = s_l v_l v_l†`. With the BdG ordering used here, `Ĩ[l,l]` is +1 for the
+six positive-energy modes and -1 for the six negative-energy modes.
 """
 function Green_SP_from_residues(
     ϵs::AbstractVector,
@@ -132,17 +121,9 @@ function Green_SP_from_residues(
     for l in eachindex(ϵs)
         iszero(weights[l]) && continue
 
-        # Ĩ[l,l] is the Nambu metric sign s_l in the residue
-        # C_l = s_l v_l v_l†.
         coeff = weights[l] * Ĩ[l, l] / (ϵs[l] - z)
         v = @view V[:, l]
 
-        # Equivalent to the less efficient direct expression
-        #
-        #     G .+= coeff .* (v * v')
-        #
-        # but written explicitly to avoid allocating one 12×12 outer-product
-        # matrix for every BdG pole.
         @inbounds for j in axes(G, 2), i in axes(G, 1)
             G[i, j] += coeff * v[i] * conj(v[j])
         end
@@ -181,4 +162,85 @@ function Green_SP_condensed(
 )
     ϵs, V, weights = Green_SP_condensed_residues(sbs, q, aux)
     return Green_SP_from_residues(ϵs, V, weights, z)
+end
+
+
+"""
+    _residue_matrix_from_residues(V, weights)
+
+Construct the equal-time residue matrix
+
+    C = sum_l weights[l] * Ĩ[l,l] * v_l v_l†
+
+from residue data.
+
+This is the matrix version of the same residue convention used by
+`Green_SP_from_residues`.
+"""
+function _residue_matrix_from_residues(
+    V::AbstractMatrix,
+    weights::AbstractVector,
+)
+    C = zeros(ComplexF64, size(V, 1), size(V, 1))
+
+    for l in eachindex(weights)
+        iszero(weights[l]) && continue
+
+        coeff = weights[l] * Ĩ[l, l]
+        v = @view V[:, l]
+
+        @inbounds for j in axes(C, 2), i in axes(C, 1)
+            C[i, j] += coeff * v[i] * conj(v[j])
+        end
+    end
+
+    return C
+end
+
+
+"""
+    _condensed_residue_matrix(sbs, qc, aux)
+
+Construct the static condensate residue matrix from
+`Green_SP_condensed_residues`.
+"""
+function _condensed_residue_matrix(
+    sbs::SchwingerBosonSystem,
+    qc::Vec3,
+    aux::CondensationAux,
+)
+    _, Vc, weights_c = Green_SP_condensed_residues(sbs, qc, aux)
+    return _residue_matrix_from_residues(Vc, weights_c)
+end
+
+
+"""
+    _residue_vertex_trace(Vq, wq, n, A, Vk, wk, m, B)
+
+Compute
+
+    tr[C_{q,n} A C_{k,m} B]
+
+using the rank-one residue form
+
+    C_l = weights[l] * Ĩ[l,l] * v_l v_l†.
+
+This avoids explicitly allocating the two residue matrices.
+"""
+function _residue_vertex_trace(
+    Vq::AbstractMatrix,
+    wq::AbstractVector,
+    n::Int,
+    A::AbstractMatrix,
+    Vk::AbstractMatrix,
+    wk::AbstractVector,
+    m::Int,
+    B::AbstractMatrix,
+)
+    vn = @view Vq[:, n]
+    vm = @view Vk[:, m]
+
+    coeff = wq[n] * Ĩ[n, n] * wk[m] * Ĩ[m, m]
+
+    return coeff * dot(vn, A * vm) * dot(vm, B * vn)
 end

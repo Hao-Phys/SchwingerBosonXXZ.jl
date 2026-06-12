@@ -145,94 +145,14 @@ end
 
 
 # ----------------------------------------------------------------------
-# Retarded polarization operator
+# Polarization operator
 # ----------------------------------------------------------------------
 
 """
-    polarization!(Π, sbs, fields, kgrid, q, ω; η, Nflavor=2, aux=nothing)
+    polarization!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
 
-Fill `Π` with the retarded zero-temperature normal-normal polarization.
-
-This branch is intentionally normal-only. Condensate-normal contributions are
-implemented only in the Matsubara branch, which is used for fluctuation-matrix
-stability and gauge-mode checks.
-"""
-function polarization!(
-    Π::AbstractMatrix{ComplexF64},
-    sbs::SchwingerBosonSystem,
-    fields::AbstractVector{InternalField},
-    kgrid,
-    q::Vec3,
-    ω::Real;
-    η::Real,
-    Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
-)
-    fill!(Π, 0.0 + 0.0im)
-
-    return _polarization_normal_core!(
-        Π,
-        sbs,
-        fields,
-        kgrid,
-        q,
-        ComplexF64(ω, η);
-        Nflavor = Nflavor,
-        aux = aux,
-    )
-end
-
-
-"""
-    polarization_normal!(Π, sbs, fields, kgrid, q, ω; η, Nflavor=2, aux=nothing)
-
-Add the retarded normal-normal contribution to `Π`.
-
-This is a compatibility wrapper around `polarization!`.
-"""
-function polarization_normal!(
-    Π::AbstractMatrix{ComplexF64},
-    sbs::SchwingerBosonSystem,
-    fields::AbstractVector{InternalField},
-    kgrid,
-    q::Vec3,
-    ω::Real;
-    η::Real,
-    Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
-)
-    return polarization!(
-        Π,
-        sbs,
-        fields,
-        kgrid,
-        q,
-        ω;
-        η = η,
-        Nflavor = Nflavor,
-        aux = aux,
-    )
-end
-
-
-# ----------------------------------------------------------------------
-# Matsubara polarization operator for fluctuation-matrix checks
-# ----------------------------------------------------------------------
-
-"""
-    polarization_matsubara!(
-        Π, sbs, fields, kgrid, q, iωq;
-        Nflavor = 2,
-        aux = nothing,
-    )
-
-Fill `Π` with the Matsubara zero-temperature polarization operator.
-
-This is intended for checking the Euclidean Gaussian fluctuation matrix
-
-    K(q, iωq) = Π0 - Π(q, iωq)
-
-before analytic continuation.
+Fill `Π` with the zero-temperature polarization operator at complex external
+frequency `z`.
 
 The normal-normal contribution is always included. If `aux` contains a
 condensate, this function also adds the mixed condensate-normal terms
@@ -242,36 +162,36 @@ condensate, this function also adds the mixed condensate-normal terms
 The purely elastic condensate-condensate contribution `Π_cc` is intentionally
 omitted.
 """
-function polarization_matsubara!(
+function polarization!(
     Π::AbstractMatrix{ComplexF64},
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    iωq::Complex;
+    z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
 )
     fill!(Π, 0.0 + 0.0im)
 
-    polarization_matsubara_normal!(
+    polarization_normal!(
         Π,
         sbs,
         fields,
         kgrid,
         q,
-        iωq;
+        z;
         Nflavor = Nflavor,
         aux = aux,
     )
 
-    polarization_matsubara_condensate_normal!(
+    polarization_condensate_normal!(
         Π,
         sbs,
         fields,
         kgrid,
         q,
-        iωq;
+        z;
         Nflavor = Nflavor,
         aux = aux,
     )
@@ -281,68 +201,19 @@ end
 
 
 """
-    polarization_matsubara_normal!(
-        Π, sbs, fields, kgrid, q, iωq;
-        Nflavor = 2,
-        aux = nothing,
-    )
+    polarization_normal!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
 
-Add the normal-normal Matsubara polarization contribution to `Π`.
+Add the normal-normal polarization contribution to `Π`.
 
 This helper does not clear `Π`; it adds into the supplied matrix.
 """
-function polarization_matsubara_normal!(
+function polarization_normal!(
     Π::AbstractMatrix{ComplexF64},
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    iωq::Complex;
-    Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
-)
-    return _polarization_normal_core!(
-        Π,
-        sbs,
-        fields,
-        kgrid,
-        q,
-        iωq;
-        Nflavor = Nflavor,
-        aux = aux,
-    )
-end
-
-
-"""
-    _polarization_normal_core!(Π, sbs, fields, kgrid, q, zq; Nflavor=2, aux=nothing)
-
-Add the zero-temperature normal-normal bubble to `Π`.
-
-For the Matsubara branch, use `zq = iωq`.
-
-For the retarded branch, use `zq = ω + iη`.
-
-The expression is
-
-    Π_{αβ}(q,zq)
-      = 1/(2 Nflavor Nk) sum_k sum_mn
-        tr[C_{k+q,n} V_α(k+q,k) C_{k,m} V_β(k,k+q)]
-        [nB(E_{k,m}) - nB(E_{k+q,n})]
-        / [zq + E_{k,m} - E_{k+q,n}].
-
-At `T = 0`, the Bose factor is evaluated for BdG poles as
-
-    nB(E) = 0   for E > 0
-    nB(E) = -1  for E < 0.
-"""
-function _polarization_normal_core!(
-    Π::AbstractMatrix{ComplexF64},
-    sbs::SchwingerBosonSystem,
-    fields::AbstractVector{InternalField},
-    kgrid,
-    q::Vec3,
-    zq::Complex;
+    z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
 )
@@ -391,7 +262,7 @@ function _polarization_normal_core!(
                         occdiff = nb_m - nb_n
                         iszero(occdiff) && continue
 
-                        denom = zq + Em - En
+                        denom = z + Em - En
 
                         coherence = _residue_vertex_trace(
                             Vkq,
@@ -418,13 +289,13 @@ end
 
 
 """
-    polarization_matsubara_condensate_normal!(
-        Π, sbs, fields, kgrid, q, iωq;
+    polarization_condensate_normal!(
+        Π, sbs, fields, kgrid, q, z;
         Nflavor = 2,
         aux = nothing,
     )
 
-Add the mixed condensate-normal Matsubara polarization contribution to `Π`.
+Add the mixed condensate-normal polarization contribution to `Π`.
 
 This function adds only
 
@@ -445,25 +316,25 @@ be the condensate momentum. The implemented expression is
 
     Π_cn =
         1/(2Nflavor) tr[
-            Gn(qc+q, iωq) Vα(qc+q,qc)
-            Cc(qc)        Vβ(qc,qc+q)
+            G_normal(qc+q, z) Vα(qc+q,qc)
+            Cc(qc)          Vβ(qc,qc+q)
         ],
 
     Π_nc =
         1/(2Nflavor) tr[
-            Cc(qc)          Vα(qc,qc-q)
-            Gn(qc-q,-iωq)  Vβ(qc-q,qc)
+            Cc(qc)           Vα(qc,qc-q)
+            G_normal(qc-q,-z) Vβ(qc-q,qc)
         ].
 
 The elastic condensate-condensate contribution `Π_cc` is intentionally omitted.
 """
-function polarization_matsubara_condensate_normal!(
+function polarization_condensate_normal!(
     Π::AbstractMatrix{ComplexF64},
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    iωq::Complex;
+    z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
 )
@@ -488,17 +359,12 @@ function polarization_matsubara_condensate_normal!(
     #   k      = qc
     #   k + q  = qc + q
     #
-    # The second line is condensed, so the normal line is evaluated at iωq.
+    # The second line is condensed, so the normal line is evaluated at z.
 
     k_c = qc
     k_n = qc + q
 
-    Gn_plus = _normal_green_from_residues(
-        sbs,
-        k_n,
-        iωq;
-        aux = aux,
-    )
+    Gn_plus = Green_SP_normal(sbs, k_n, z, aux)
 
     for (iα, α) in pairs(fields)
         internal_vertices!(Vα, sbs, α, k_n, k_c)
@@ -506,7 +372,7 @@ function polarization_matsubara_condensate_normal!(
         for (iβ, β) in pairs(fields)
             internal_vertices!(Vβ, sbs, β, k_c, k_n)
 
-            Π[iα, iβ] += prefactor * _trace12(Gn_plus * Vα * Cc * Vβ)
+            Π[iα, iβ] += prefactor * tr(Gn_plus * Vα * Cc * Vβ)
         end
     end
 
@@ -515,17 +381,12 @@ function polarization_matsubara_condensate_normal!(
     #   k      = qc - q
     #   k + q  = qc
     #
-    # The first line is condensed, so the normal line is evaluated at -iωq.
+    # The first line is condensed, so the normal line is evaluated at -z.
 
     k_n = qc - q
     k_c = qc
 
-    Gn_minus = _normal_green_from_residues(
-        sbs,
-        k_n,
-        -iωq;
-        aux = aux,
-    )
+    Gn_minus = Green_SP_normal(sbs, k_n, -z, aux)
 
     for (iα, α) in pairs(fields)
         internal_vertices!(Vα, sbs, α, k_c, k_n)
@@ -533,7 +394,7 @@ function polarization_matsubara_condensate_normal!(
         for (iβ, β) in pairs(fields)
             internal_vertices!(Vβ, sbs, β, k_n, k_c)
 
-            Π[iα, iβ] += prefactor * _trace12(Cc * Vα * Gn_minus * Vβ)
+            Π[iα, iβ] += prefactor * tr(Cc * Vα * Gn_minus * Vβ)
         end
     end
 
@@ -542,7 +403,7 @@ end
 
 
 # ----------------------------------------------------------------------
-# RPA kernels
+# RPA kernel
 # ----------------------------------------------------------------------
 
 """
@@ -567,11 +428,11 @@ end
 
 
 """
-    rpa_kernel!(K, sbs, fields, kgrid, q, ω; η, Nflavor=2, aux=nothing)
+    rpa_kernel!(K, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
 
-Compute the retarded normal-only inverse RPA propagator kernel
+Compute the inverse RPA propagator kernel
 
-    K^R(q,ω) = Π0 - Π^R_nn(q,ω).
+    K(q,z) = Π0 - Π(q,z).
 """
 function rpa_kernel!(
     K::AbstractMatrix{ComplexF64},
@@ -579,8 +440,7 @@ function rpa_kernel!(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    ω::Real;
-    η::Real,
+    z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
 )
@@ -600,234 +460,18 @@ function rpa_kernel!(
         fields,
         kgrid,
         q,
-        ω;
-        η = η,
+        z;
         Nflavor = Nflavor,
         aux = aux,
     )
 
     return rpa_kernel!(K, Π0, Π)
-end
-
-
-"""
-    rpa_kernel_matsubara!(K, Π0, Π)
-
-Fill `K` with the Matsubara inverse RPA propagator kernel
-
-    K = Π0 - Π.
-"""
-function rpa_kernel_matsubara!(
-    K::AbstractMatrix{ComplexF64},
-    Π0::AbstractMatrix{ComplexF64},
-    Π::AbstractMatrix{ComplexF64},
-)
-    return rpa_kernel!(K, Π0, Π)
-end
-
-
-"""
-    rpa_kernel_matsubara!(
-        K, sbs, fields, kgrid, q, iωq;
-        Nflavor = 2,
-        aux = nothing,
-    )
-
-Compute the Matsubara inverse RPA propagator kernel
-
-    K(q, iωq) = Π0 - Π(q, iωq).
-
-This is the kernel to use for positive-stability and gauge-mode checks before
-analytic continuation.
-"""
-function rpa_kernel_matsubara!(
-    K::AbstractMatrix{ComplexF64},
-    sbs::SchwingerBosonSystem,
-    fields::AbstractVector{InternalField},
-    kgrid,
-    q::Vec3,
-    iωq::Complex;
-    Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
-)
-    nϕ = length(fields)
-
-    size(K) == (nϕ, nϕ) ||
-        throw(DimensionMismatch("`K` must have size ($(nϕ), $(nϕ))."))
-
-    Π0 = similar(K)
-    Π = similar(K)
-
-    Pi0!(Π0, sbs, fields)
-
-    polarization_matsubara!(
-        Π,
-        sbs,
-        fields,
-        kgrid,
-        q,
-        iωq;
-        Nflavor = Nflavor,
-        aux = aux,
-    )
-
-    return rpa_kernel_matsubara!(K, Π0, Π)
 end
 
 
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
-
-@inline function _metric_sign(l::Int)
-    return l <= 6 ? 1.0 : -1.0
-end
-
-
-"""
-    _residue_vertex_trace(Vq, wq, n, A, Vk, wk, m, B)
-
-Compute
-
-    tr[C_{q,n} A C_{k,m} B]
-
-using the rank-one residue form
-
-    C_l = weight_l * s_l * v_l v_l†.
-
-This avoids explicitly allocating residue matrices.
-"""
-function _residue_vertex_trace(
-    Vq::AbstractMatrix,
-    wq::AbstractVector,
-    n::Int,
-    A::AbstractMatrix,
-    Vk::AbstractMatrix,
-    wk::AbstractVector,
-    m::Int,
-    B::AbstractMatrix,
-)
-    vn = @view Vq[:, n]
-    vm = @view Vk[:, m]
-
-    sn = _metric_sign(n)
-    sm = _metric_sign(m)
-
-    coeff = wq[n] * sn * wk[m] * sm
-
-    return coeff * dot(vn, A * vm) * dot(vm, B * vn)
-end
-
-
-"""
-    _trace12(A)
-
-Return the trace of a 12×12 matrix.
-"""
-@inline function _trace12(A::AbstractMatrix)
-    size(A) == (12, 12) ||
-        throw(DimensionMismatch("Expected a 12 × 12 matrix."))
-
-    out = zero(eltype(A))
-
-    @inbounds for i in 1:12
-        out += A[i, i]
-    end
-
-    return out
-end
-
-
-"""
-    _residue_matrix_from_residues(V, weights)
-
-Construct the residue matrix
-
-    C = sum_l weight_l * s_l * v_l v_l†
-
-from a residue decomposition, where `s_l = +1` for positive BdG poles
-`l <= 6` and `s_l = -1` for negative BdG poles `l > 6`.
-"""
-function _residue_matrix_from_residues(
-    V::AbstractMatrix,
-    weights::AbstractVector,
-)
-    size(V, 1) == 12 ||
-        throw(DimensionMismatch("Residue eigenvector matrix must have 12 rows."))
-
-    C = zeros(ComplexF64, 12, 12)
-
-    for l in eachindex(weights)
-        iszero(weights[l]) && continue
-
-        v = @view V[:, l]
-        s = _metric_sign(l)
-
-        C .+= weights[l] * s * (v * v')
-    end
-
-    return C
-end
-
-
-"""
-    _normal_green_from_residues(sbs, k, z; aux=nothing)
-
-Construct the full normal saddle-point Green's function from the pole expansion,
-
-    Gn(k,z) = sum_l C_l(k) / (z - E_l(k)),
-
-where
-
-    C_l = weight_l * s_l * v_l v_l†.
-
-This includes both positive and negative BdG poles returned by
-`Green_SP_normal_residues`.
-"""
-function _normal_green_from_residues(
-    sbs::SchwingerBosonSystem,
-    k,
-    z::Complex;
-    aux::Union{Nothing, CondensationAux} = nothing,
-)
-    ϵs, V, weights =
-        Green_SP_normal_residues(sbs, k, aux)
-
-    G = zeros(ComplexF64, 12, 12)
-
-    for l in eachindex(ϵs)
-        iszero(weights[l]) && continue
-
-        v = @view V[:, l]
-        s = _metric_sign(l)
-
-        G .+= weights[l] * s * (v * v') / (z - ϵs[l])
-    end
-
-    return G
-end
-
-
-"""
-    _condensed_residue_matrix(sbs, qc, aux)
-
-Construct the static condensate residue matrix `Cc` from
-`Green_SP_condensed_residues`.
-
-All nonzero condensed residues returned by `Green_SP_condensed_residues` are
-included.
-"""
-function _condensed_residue_matrix(
-    sbs::SchwingerBosonSystem,
-    qc,
-    aux::CondensationAux,
-)
-    _, Vc, weights_c =
-        Green_SP_condensed_residues(sbs, qc, aux)
-
-    return _residue_matrix_from_residues(Vc, weights_c)
-end
-
 
 """
     _nB_T0(E)

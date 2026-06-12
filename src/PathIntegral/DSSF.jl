@@ -1,3 +1,5 @@
+# src/PathIntegral/DSSF.jl
+
 """
     dssf_SP(
         sbs::SchwingerBosonSystem,
@@ -13,18 +15,15 @@
 Compute the zero-temperature saddle-point dynamical spin structure factor using
 the path-integral Green-function trace formula.
 
-Returns
-
-    ret_normal, ret_condensate
-
-where both arrays have size `3 × length(energies)`.
+Returns `ret_normal, ret_condensate`, where both arrays have size
+`3 × length(energies)`.
 
 This version matches the canonical finite-size condensate convention
 
     ik == aux.conden_index.
 
 The pinned normal contribution is removed only from the negative-pole side of
-G(k) in that sector. The mixed condensate contribution is then added from
+`G(k)` in that sector. The mixed condensate contribution is then added from
 
     G_condensed(k = qc) × G_normal(k + q = qc + q).
 """
@@ -47,11 +46,21 @@ function dssf_SP(
 
     if include_condensation
         μ0 = copy(real(sbs.mean_fields[13:15]))
-        optimize_μ0!(sbs, μ0, aux; options=options_μ, tol=tol, max_iters=max_iters)
+
+        optimize_μ0!(
+            sbs,
+            μ0,
+            aux;
+            options = options_μ,
+            tol = tol,
+            max_iters = max_iters,
+        )
+
         condensation_results!(sbs, aux)
     end
 
     (; L) = sbs
+
     Ns = 3L^2
 
     q_reshaped = to_reshaped_rlu(q)
@@ -59,24 +68,26 @@ function dssf_SP(
     Uq = [external_vertex(μ, q) for μ in 1:3]
     Umq = [external_vertex(μ, -q) for μ in 1:3]
 
-    k_grid = [Vec3(i/L, j/L, 0.0) for i in 0:L-1, j in 0:L-1, _ in 1:1]
+    k_grid = [
+        Vec3(i / L, j / L, 0.0)
+        for i in 0:L-1, j in 0:L-1, _ in 1:1
+    ]
 
     has_condensate = include_condensation && aux.conden_index !== nothing
 
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Normal-normal contribution.
     #
-    # Important:
-    #
-    # We call Green_SP_normal_residues with aux = nothing here, so it does not
-    # globally remove pinned poles. We remove the pinned normal contribution
-    # locally, matching the canonical convention:
+    # We call Green_SP_normal_residues with aux = nothing here, so it does
+    # not globally remove pinned poles. We remove the pinned normal
+    # contribution locally, matching the canonical convention:
     #
     #     ik == aux.conden_index
     #
     # and only on the negative-pole side of G(k), which corresponds to the
     # canonical V2 / -k line.
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------
+
     for (ik, k) in enumerate(k_grid)
         kq = k + q_reshaped
 
@@ -90,7 +101,7 @@ function dssf_SP(
             for a in 1:6
                 lneg = 6 + a
 
-                if isapprox(abs(ϵs_k[lneg]), sbs.condensation_ϵ; atol=1e-8)
+                if isapprox(abs(ϵs_k[lneg]), sbs.condensation_ϵ; atol = 1e-8)
                     weights_k[lneg] = 0.0
                 end
             end
@@ -110,46 +121,43 @@ function dssf_SP(
                 ΔE = ω1 + ω2
 
                 for μ in 1:3
-                    v1 = @view Vk[:, lneg]
-                    v2 = @view Vkq[:, lpos]
-
-                    pref =
-                        weights_k[lneg] *
-                        weights_kq[lpos] *
-                        Ĩ[lneg, lneg] *
-                        Ĩ[lpos, lpos]
-
-                    trace_weight =
-                        pref *
-                        dot(v1, Uq[μ] * v2) *
-                        dot(v2, Umq[μ] * v1)
+                    trace_weight = _residue_vertex_trace(
+                        Vkq,
+                        weights_kq,
+                        lpos,
+                        Umq[μ],
+                        Vk,
+                        weights_k,
+                        lneg,
+                        Uq[μ],
+                    )
 
                     weight = -real(trace_weight) / (8Ns)
 
                     for (ie, energy) in enumerate(energies)
-                        ret_normal[μ, ie] +=
-                            weight *
-                            lorentzian(energy - ΔE, Γ)
+                        ret_normal[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
                     end
                 end
             end
         end
     end
 
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Condensate-normal contribution.
     #
     # This matches the canonical convention ik == aux.conden_index.
     #
-    # The condensed canonical line is the V2 / -k line, which corresponds to the
-    # negative pole of G(k). Therefore we set
+    # The condensed canonical line is the V2 / -k line, which corresponds to
+    # the negative pole of G(k). Therefore we set
     #
-    #     k = qc,
+    #     k     = qc,
     #     k + q = qc + q.
     #
     # Green_SP_condensed_residues already assigns the pinned poles weight
-    # aux.ξ + 1. The extra L^2 below is the collapsed finite-size momentum sum.
-    # -------------------------------------------------------------------------
+    # aux.ξ + 1. The extra L^2 below is the collapsed finite-size momentum
+    # sum.
+    # ------------------------------------------------------------------
+
     if has_condensate
         qc = k_grid[aux.conden_index]
 
@@ -176,26 +184,22 @@ function dssf_SP(
                 ΔE = ϵs_n[lpos]
 
                 for μ in 1:3
-                    v1 = @view Vc[:, lcond_neg]
-                    v2 = @view Vn[:, lpos]
-
-                    pref =
-                        weights_c[lcond_neg] *
-                        weights_n[lpos] *
-                        Ĩ[lcond_neg, lcond_neg] *
-                        Ĩ[lpos, lpos]
-
-                    trace_weight =
-                        pref *
-                        dot(v1, Uq[μ] * v2) *
-                        dot(v2, Umq[μ] * v1)
+                    trace_weight = _residue_vertex_trace(
+                        Vn,
+                        weights_n,
+                        lpos,
+                        Umq[μ],
+                        Vc,
+                        weights_c,
+                        lcond_neg,
+                        Uq[μ],
+                    )
 
                     weight = -L^2 * real(trace_weight) / (8Ns)
 
                     for (ie, energy) in enumerate(energies)
                         ret_condensate[μ, ie] +=
-                            weight *
-                            lorentzian(energy - ΔE, Γ)
+                            weight * lorentzian(energy - ΔE, Γ)
                     end
                 end
             end
@@ -204,6 +208,7 @@ function dssf_SP(
 
     return ret_normal, ret_condensate
 end
+
 
 """
     dssf_FL(
@@ -221,23 +226,21 @@ end
 Compute the zero-temperature Gaussian-fluctuation counter-diagram contribution
 to the dynamical spin structure factor.
 
-This implements the normal-normal part of the Fig. 1(b) contribution only:
+This implements the normal-normal part of the Fig. 1(b) contribution only,
 
-    χ_FL^{μμ}(q,ω) = (1/N) S_α^{1+1;μ}(q,ω)
-                         D_{αβ}(q,ω)
-                         S_β^{1+1;μ}(-q,-ω)
+    χ_FL^{μμ}(q,ω)
+      = (1/N) S_α^{1+1;μ}(q,ω)
+        D_{αβ}(q,ω)
+        S_β^{1+1;μ}(-q,-ω),
 
 with
 
-    D(q,ω) = [Π0(q) - Π(q,ω)]^{-1}.
+    D(q,z) = [Π0(q) - Π(q,z)]^{-1}.
 
 The returned array has size `3 × length(energies)`.
 
-Current limitation:
-the condensate-normal and normal-condensate pieces of the external-internal
-bubbles, and the condensate contribution to the RPA kernel, are not included
-yet. The function nevertheless prepares the condensation auxiliary data so that
-these pieces can be added later without changing the outer structure.
+Current limitation: the condensate-normal and normal-condensate pieces of the
+external-internal bubbles are not included yet.
 """
 function dssf_FL(
     sbs::SchwingerBosonSystem,
@@ -257,7 +260,16 @@ function dssf_FL(
 
     if include_condensation
         μ0 = copy(real(sbs.mean_fields[13:15]))
-        optimize_μ0!(sbs, μ0, aux; options=options_μ, tol=tol, max_iters=max_iters)
+
+        optimize_μ0!(
+            sbs,
+            μ0,
+            aux;
+            options = options_μ,
+            tol = tol,
+            max_iters = max_iters,
+        )
+
         condensation_results!(sbs, aux)
     end
 
@@ -265,7 +277,10 @@ function dssf_FL(
 
     q_reshaped = to_reshaped_rlu(q)
 
-    k_grid = [Vec3(i/L, j/L, 0.0) for i in 0:L-1, j in 0:L-1, _ in 1:1]
+    k_grid = [
+        Vec3(i / L, j / L, 0.0)
+        for i in 0:L-1, j in 0:L-1, _ in 1:1
+    ]
 
     fields = internal_field_basis()
     nϕ = length(fields)
@@ -280,27 +295,24 @@ function dssf_FL(
     Pi0!(Π0, sbs, fields)
 
     # For the normal-only fluctuation calculation, use the regular normal
-    # residue provider. In the condensed phase, passing `aux` lets the lower
-    # Green-function layer remove or regularize pinned condensate poles, while
-    # the explicit condensate-normal pieces are left for a later implementation.
-    aux_normal = include_condensation && aux.conden_index !== nothing ? aux : nothing
+    # residue provider.
+    #
+    # In the condensed phase, passing `aux` lets the lower Green-function layer
+    # remove or regularize pinned condensate poles, while the explicit
+    # condensate-normal pieces are left for a later implementation.
+    aux_normal =
+        include_condensation && aux.conden_index !== nothing ? aux : nothing
 
     for (ie, energy) in enumerate(energies)
+        z = energy + im * Γ
 
-        # Retarded RPA kernel:
-        #
-        #   K(q,ω) = Π0(q) - Π^R(q,ω)
-        #
-        # At this stage `polarization!` includes only the normal-normal
-        # contribution.
         polarization!(
             Π,
             sbs,
             fields,
             k_grid,
             q_reshaped,
-            energy;
-            η = Γ,
+            z;
             Nflavor = Nflavor,
             aux = aux_normal,
         )
@@ -311,6 +323,7 @@ function dssf_FL(
             # First bubble:
             #
             #   Splus[α] = S^{1+1;μ,R}_α(q, ω)
+
             external_internal_bubble!(
                 Splus,
                 sbs,
@@ -331,6 +344,7 @@ function dssf_FL(
             # The sign of `η` is negative because this factor is evaluated
             # after the full retarded continuation of the product, giving the
             # denominator -ω - i0⁺ + ... in the second bubble.
+
             external_internal_bubble!(
                 Sminus,
                 sbs,
@@ -348,6 +362,7 @@ function dssf_FL(
             #
             # Use transpose, not adjoint, because this is an index contraction
             # over auxiliary-field labels, not a Hermitian inner product.
+
             χ_FL = (1 / Nflavor) * (transpose(Splus) * (K \ Sminus))
 
             ret_FL[μ, ie] = -imag(χ_FL) / π
