@@ -365,7 +365,7 @@ function dssf_FL(
 
             χ_FL = (1 / Nflavor) * (transpose(Splus) * (K \ Sminus))
 
-            ret_FL[μ, ie] = -imag(χ_FL) / π
+            ret_FL[μ, ie] = imag(χ_FL) / π
         end
     end
 

@@ -259,7 +259,7 @@ function polarization_normal!(
                         En = ϵs_kq[n]
                         nb_n = _nB_T0(En)
 
-                        occdiff = nb_m - nb_n
+                        occdiff = nb_n - nb_m
                         iszero(occdiff) && continue
 
                         denom = z + Em - En

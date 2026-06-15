@@ -116,7 +116,7 @@ function external_internal_bubble_normal!(
 
     Vα = zeros(ComplexF64, 12, 12)
 
-    prefactor = 1 / (4 * sqrt(Ns * Nu))
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
 
     for k in kgrid
         kq = k + q_reshaped
@@ -221,7 +221,7 @@ function external_internal_bubble_pair!(
         -q_reshaped,
         -ω,
         ν;
-        η = η,
+        η = -η,
         aux = aux,
     )
 
