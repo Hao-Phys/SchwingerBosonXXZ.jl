@@ -9,8 +9,9 @@ the common Fourier normalization `1 / sqrt(Nu * β)` and the corresponding
 momentum-frequency Kronecker delta have been stripped off.
 
 The reduced vertex is independent of `k`, `p`, and `sbs`. It is local in
-sublattice space and diagonal in Nambu and spin space. The factor `im` comes
-directly from the constraint coupling in the action.
+sublattice space and diagonal in Nambu and spin space.
+
+The factor `im` comes directly from the constraint coupling in the action.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -31,12 +32,14 @@ function internal_vertices!(
     for σ in 1:2
         V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += im
         V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += im
+
         # V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += -1
         # V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += -1
     end
 
     return V
 end
+
 
 """
     internal_vertices!(V, sbs, kind, X, a, δ, k, p)
@@ -54,6 +57,13 @@ Arguments:
 This implements the reduced vertices of Appendix H directly. The common
 normalization `1 / sqrt(Nu * β)` and the momentum-frequency Kronecker delta are
 not included.
+
+Sector convention:
+
+- in sector `q`, `kind = :W` means the actual field `W(q)`;
+- in sector `q`, `kind = :Wbar` means the actual field `Wbar(-q)`;
+- the reduced vertex is called as `internal_vertices!(V, ..., k, p)` with
+  transfer `k - p`.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -137,11 +147,8 @@ Return `exp(i q ⋅ δ)` for the oriented bond `δ ∈ δ_{a -> a+1}`.
 The input `q` is assumed to be in the same reciprocal-coordinate convention as
 the existing BdG/path-integral code.
 
-Implementation note:
-
-    cis(x) = cos(x) + im * sin(x) = exp(im * x)
-
-so `cis(2π * x)` is the unit-modulus phase `exp(2π * im * x)`.
+Implementation note: `cis(x) = cos(x) + im * sin(x) = exp(im * x)`, so
+`cis(2π * x)` is the unit-modulus phase `exp(2π * im * x)`.
 """
 @inline function _bond_phase(a::Int, δ::Int, q::Vec3)
     x = if a == 1
@@ -191,35 +198,57 @@ function _internal_B!(
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H13): 11 block, -κ e^{i p⋅δ} P_{a,a+1} ⊗ σ0
+        # Eq. (H13): 11 block,
+        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ σ0
+        # _add_spin_matrix!(
+        #     V, 1, 1, a, ap,
+        #     -κ * _bond_phase(a, δ, p),
+        #     :σ0,
+        # )
         _add_spin_matrix!(
             V, 1, 1, a, ap,
-            -κ * _bond_phase(a, δ, p),
+            -κ/2 * _bond_phase(a, δ, p),
             :σ0,
         )
 
-        # Eq. (H14): 22 block, -κ e^{-i p⋅δ} P_{a+1,a} ⊗ σ0
+        # Eq. (H14): 22 block,
+        # -κ e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
+        # _add_spin_matrix!(
+        #     V, 2, 2, ap, a,
+        #     -κ * conj(_bond_phase(a, δ, k)),
+        #     :σ0,
+        # )
         _add_spin_matrix!(
             V, 2, 2, ap, a,
-            -κ * conj(_bond_phase(a, δ, p)),
+            -κ/2 * conj(_bond_phase(a, δ, k)),
             :σ0,
         )
-
     elseif kind === :Wbar
-        # Eq. (H18): 11 block, -κ s e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
+        # Eq. (H18): 11 block,
+        # -κ s e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
+        # _add_spin_matrix!(
+        #     V, 1, 1, ap, a,
+        #     -κ * s * conj(_bond_phase(a, δ, k)),
+        #     :σ0,
+        # )
         _add_spin_matrix!(
             V, 1, 1, ap, a,
-            -κ * s * conj(_bond_phase(a, δ, k)),
+            -κ/2 * s * conj(_bond_phase(a, δ, k)),
             :σ0,
         )
 
-        # Eq. (H19): 22 block, -κ s e^{i k⋅δ} P_{a,a+1} ⊗ σ0
+        # Eq. (H19): 22 block,
+        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σ0
+        # _add_spin_matrix!(
+        #     V, 2, 2, a, ap,
+        #     -κ * s * _bond_phase(a, δ, p),
+        #     :σ0,
+        # )
         _add_spin_matrix!(
             V, 2, 2, a, ap,
-            -κ * s * _bond_phase(a, δ, k),
+            -κ/2 * s * _bond_phase(a, δ, p),
             :σ0,
         )
-
     else
         error("Unreachable internal kind: $kind.")
     end
@@ -245,35 +274,37 @@ function _internal_C!(
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H21): 11 block, -κ e^{i p⋅δ} P_{a,a+1} ⊗ σz
+        # Eq. (H21): 11 block,
+        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ σz
         _add_spin_matrix!(
             V, 1, 1, a, ap,
             -κ * _bond_phase(a, δ, p),
             :σz,
         )
 
-        # Eq. (H22): 22 block, -κ e^{-i p⋅δ} P_{a+1,a} ⊗ σz
+        # Eq. (H22): 22 block,
+        # -κ e^{-i k⋅δ} P_{a+1,a} ⊗ σz
         _add_spin_matrix!(
             V, 2, 2, ap, a,
-            -κ * conj(_bond_phase(a, δ, p)),
+            -κ * conj(_bond_phase(a, δ, k)),
             :σz,
         )
-
     elseif kind === :Wbar
-        # Eq. (H24): 11 block, -κ s e^{-i k⋅δ} P_{a+1,a} ⊗ σz
+        # Eq. (H24): 11 block,
+        # -κ s e^{-i k⋅δ} P_{a+1,a} ⊗ σz
         _add_spin_matrix!(
             V, 1, 1, ap, a,
             -κ * s * conj(_bond_phase(a, δ, k)),
             :σz,
         )
 
-        # Eq. (H25): 22 block, -κ s e^{i k⋅δ} P_{a,a+1} ⊗ σz
+        # Eq. (H25): 22 block,
+        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σz
         _add_spin_matrix!(
             V, 2, 2, a, ap,
-            -κ * s * _bond_phase(a, δ, k),
+            -κ * s * _bond_phase(a, δ, p),
             :σz,
         )
-
     else
         error("Unreachable internal kind: $kind.")
     end
@@ -298,27 +329,28 @@ function _internal_A!(
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H28): 12 block, -κ e^{i p⋅δ} P_{a,a+1} ⊗ iσy
+        # Eq. (H28): 12 block,
+        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ iσy
         _add_spin_matrix!(
             V, 1, 2, a, ap,
             -κ * _bond_phase(a, δ, p),
             :iσy,
         )
-
     elseif kind === :Wbar
-        # Eq. (H31): 21 block, -κ s e^{i p⋅δ} P_{a,a+1} ⊗ iσy
+        # Eq. (H31): 21 block,
+        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ iσy
         _add_spin_matrix!(
             V, 2, 1, a, ap,
             -κ * s * _bond_phase(a, δ, p),
             :iσy,
         )
-
     else
         error("Unreachable internal kind: $kind.")
     end
 
     return V
 end
+
 
 # ----------------------------------------------------------------------
 # D channel: Eqs. (H34)--(H37)
@@ -336,27 +368,28 @@ function _internal_D!(
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H34): 12 block, -κ e^{i p⋅δ} P_{a,a+1} ⊗ σx
+        # Eq. (H34): 12 block,
+        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ σx
         _add_spin_matrix!(
             V, 1, 2, a, ap,
             -κ * _bond_phase(a, δ, p),
             :σx,
         )
-
     elseif kind === :Wbar
-        # Eq. (H36): 21 block, -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σx
+        # Eq. (H36): 21 block,
+        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σx
         _add_spin_matrix!(
             V, 2, 1, a, ap,
             -κ * s * _bond_phase(a, δ, p),
             :σx,
         )
-
     else
         error("Unreachable internal kind: $kind.")
     end
 
     return V
 end
+
 
 # ----------------------------------------------------------------------
 # Matrix-entry helper
@@ -374,23 +407,19 @@ function _add_spin_matrix!(
     if spin_matrix === :σ0
         V[nambu_index(ηrow, arow, 1), nambu_index(ηcol, acol, 1)] += coeff
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 2)] += coeff
-
     elseif spin_matrix === :σz
         V[nambu_index(ηrow, arow, 1), nambu_index(ηcol, acol, 1)] += coeff
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 2)] -= coeff
-
     elseif spin_matrix === :iσy
         # iσy = [0  1
-        #        -1 0]
+        #       -1  0]
         V[nambu_index(ηrow, arow, 1), nambu_index(ηcol, acol, 2)] += coeff
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 1)] -= coeff
-
     elseif spin_matrix === :σx
-        # σx = [0 1
-        #       1 0]
+        # σx = [0  1
+        #      1  0]
         V[nambu_index(ηrow, arow, 1), nambu_index(ηcol, acol, 2)] += coeff
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 1)] += coeff
-
     else
         throw(ArgumentError("Unknown spin matrix label `$spin_matrix`."))
     end

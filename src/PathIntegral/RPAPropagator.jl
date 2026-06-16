@@ -11,7 +11,17 @@ Fields are
 - `kind = :λ` for constraint fields.
 
 For HS fields, `channel ∈ (:A, :B, :C, :D)`, `a = 1,2,3`, and `δ = 1,2,3`.
+
 For constraint fields, use `channel = :none` and `δ = 0`.
+
+Sector convention:
+
+- in sector `q`, `InternalField(:W, X, a, δ)` means the actual field
+  `W^X_{a,δ}(q)`;
+- in sector `q`, `InternalField(:Wbar, X, a, δ)` means the actual field
+  `Wbar^X_{a,δ}(-q)`;
+- in sector `q`, `InternalField(:λ, :none, a, 0)` means the actual field
+  `λ_a(q)`.
 """
 struct InternalField
     kind::Symbol
@@ -32,6 +42,9 @@ The ordering is
 2. the three constraint fields `λ_a`.
 
 The total dimension is `4 * 3 * 3 * 2 + 3 = 75`.
+
+The returned labels are sector labels. In sector `q`, the field `:Wbar`
+represents the actual Fourier field `Wbar(-q)`, not `Wbar(q)`.
 """
 function internal_field_basis()
     fields = InternalField[]
@@ -68,6 +81,10 @@ For HS fields, this dispatches to
 
 The returned vertex is reduced: the Fourier normalization and the
 momentum-frequency Kronecker delta are not included.
+
+The momentum transfer of the reduced vertex is `k - p`. Therefore, when this
+function is called as `internal_vertices!(V, sbs, α, k + q, k)`, the field
+label `α` is interpreted as a sector-`q` field.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -115,6 +132,11 @@ This implements
     Π0[Wbar^X_{a,δ}, W^X_{a,δ}] = κ^X_{a,δ} / 2
 
 All entries involving `λ` are zero.
+
+The matrix is stored in the same row/column convention as the RPA kernel:
+rows belong to the sector `-q`, columns belong to the sector `q`. Since the
+bare kernel is local and symmetric in the `W`, `Wbar` labels, this convention
+does not change the entries, but it fixes how `Π0` combines with `Π`.
 """
 function Pi0!(
     Π0::AbstractMatrix{ComplexF64},
@@ -122,7 +144,6 @@ function Pi0!(
     fields::AbstractVector{InternalField},
 )
     nϕ = length(fields)
-
     size(Π0) == (nϕ, nϕ) ||
         throw(DimensionMismatch("`Π0` must have size ($(nϕ), $(nϕ))."))
 
@@ -156,11 +177,17 @@ frequency `z`.
 
 The normal-normal contribution is always included. If `aux` contains a
 condensate, this function also adds the mixed condensate-normal terms
-
-    Π_cn + Π_nc.
+Π_cn + Π_nc.
 
 The purely elastic condensate-condensate contribution `Π_cc` is intentionally
 omitted.
+
+Storage convention:
+
+    Π[β, α](q)
+
+where the row index `β` belongs to the sector `-q`, and the column index `α`
+belongs to the sector `q`.
 """
 function polarization!(
     Π::AbstractMatrix{ComplexF64},
@@ -206,6 +233,9 @@ end
 Add the normal-normal polarization contribution to `Π`.
 
 This helper does not clear `Π`; it adds into the supplied matrix.
+
+The matrix is stored as `Π[β, α](q)`, where `α` labels the sector-`q` vertex
+`V_α(k + q, k)`, and `β` labels the sector-`-q` vertex `V_β(k, k + q)`.
 """
 function polarization_normal!(
     Π::AbstractMatrix{ComplexF64},
@@ -218,7 +248,6 @@ function polarization_normal!(
     aux::Union{Nothing, CondensationAux} = nothing,
 )
     nϕ = length(fields)
-
     size(Π) == (nϕ, nϕ) ||
         throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
 
@@ -233,16 +262,15 @@ function polarization_normal!(
     for k in kgrid
         kq = k + q
 
-        ϵs_k, Vk, weights_k =
-            Green_SP_normal_residues(sbs, k, aux)
-
-        ϵs_kq, Vkq, weights_kq =
-            Green_SP_normal_residues(sbs, kq, aux)
+        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
 
         for (iα, α) in pairs(fields)
+            # Sector q: transfer (k + q) - k = q.
             internal_vertices!(Vα, sbs, α, kq, k)
 
             for (iβ, β) in pairs(fields)
+                # Sector -q: transfer k - (k + q) = -q.
                 internal_vertices!(Vβ, sbs, β, k, kq)
 
                 accum = 0.0 + 0.0im
@@ -279,7 +307,8 @@ function polarization_normal!(
                     end
                 end
 
-                Π[iα, iβ] += prefactor * accum
+                # Store as Π[β, α](q): row sector -q, column sector q.
+                Π[iβ, iα] += prefactor * accum
             end
         end
     end
@@ -290,41 +319,30 @@ end
 
 """
     polarization_condensate_normal!(
-        Π, sbs, fields, kgrid, q, z;
-        Nflavor = 2,
-        aux = nothing,
+        Π, sbs, fields, kgrid, q, z; Nflavor = 2, aux = nothing,
     )
 
 Add the mixed condensate-normal polarization contribution to `Π`.
 
-This function adds only
-
-    Π_cn + Π_nc,
-
-where one Green's-function line is the static condensed contribution and the
-other is the full normal saddle-point Green's function.
-
-The function is a no-op unless
+This function adds only Π_cn + Π_nc, where one Green's-function line is the
+static condensed contribution and the other is the full normal saddle-point
+Green's function. The function is a no-op unless
 
     aux !== nothing && aux.conden_index !== nothing.
 
-Let
+Let `qc = kgrid[aux.conden_index]` be the condensate momentum.
 
-    qc = kgrid[aux.conden_index]
+The implemented expression is
 
-be the condensate momentum. The implemented expression is
+    Π_cn = 1/(2Nflavor)
+        tr[ G_normal(qc+q, z) Vα(qc+q,qc) Cc(qc) Vβ(qc,qc+q) ],
 
-    Π_cn =
-        1/(2Nflavor) tr[
-            G_normal(qc+q, z) Vα(qc+q,qc)
-            Cc(qc)          Vβ(qc,qc+q)
-        ],
+    Π_nc = 1/(2Nflavor)
+        tr[ Cc(qc) Vα(qc,qc-q) G_normal(qc-q,-z) Vβ(qc-q,qc) ].
 
-    Π_nc =
-        1/(2Nflavor) tr[
-            Cc(qc)           Vα(qc,qc-q)
-            G_normal(qc-q,-z) Vβ(qc-q,qc)
-        ].
+In both terms, `α` labels the sector-`q` vertex and `β` labels the sector-`-q`
+vertex. The matrix is stored as `Π[β, α](q)`, with row sector `-q` and column
+sector `q`.
 
 The elastic condensate-condensate contribution `Π_cc` is intentionally omitted.
 """
@@ -341,12 +359,10 @@ function polarization_condensate_normal!(
     _has_condensate(aux) || return Π
 
     nϕ = length(fields)
-
     size(Π) == (nϕ, nϕ) ||
         throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
 
     qc = kgrid[aux.conden_index]
-
     prefactor = 1 / (2 * Nflavor)
 
     Cc = _condensed_residue_matrix(sbs, qc, aux)
@@ -356,14 +372,14 @@ function polarization_condensate_normal!(
 
     # Π_cn:
     #
-    #   k      = qc
-    #   k + q  = qc + q
+    #     k = qc
+    #     k + q = qc + q
     #
     # The second line is condensed, so the normal line is evaluated at z.
-
+    #
+    # α is sector q; β is sector -q.
     k_c = qc
     k_n = qc + q
-
     Gn_plus = Green_SP_normal(sbs, k_n, z, aux)
 
     for (iα, α) in pairs(fields)
@@ -372,20 +388,21 @@ function polarization_condensate_normal!(
         for (iβ, β) in pairs(fields)
             internal_vertices!(Vβ, sbs, β, k_c, k_n)
 
-            Π[iα, iβ] += prefactor * tr(Gn_plus * Vα * Cc * Vβ)
+            # Store as Π[β, α](q): row sector -q, column sector q.
+            Π[iβ, iα] += prefactor * tr(Gn_plus * Vα * Cc * Vβ)
         end
     end
 
     # Π_nc:
     #
-    #   k      = qc - q
-    #   k + q  = qc
+    #     k = qc - q
+    #     k + q = qc
     #
     # The first line is condensed, so the normal line is evaluated at -z.
-
+    #
+    # α is sector q; β is sector -q.
     k_n = qc - q
     k_c = qc
-
     Gn_minus = Green_SP_normal(sbs, k_n, -z, aux)
 
     for (iα, α) in pairs(fields)
@@ -394,7 +411,8 @@ function polarization_condensate_normal!(
         for (iβ, β) in pairs(fields)
             internal_vertices!(Vβ, sbs, β, k_n, k_c)
 
-            Π[iα, iβ] += prefactor * tr(Cc * Vα * Gn_minus * Vβ)
+            # Store as Π[β, α](q): row sector -q, column sector q.
+            Π[iβ, iα] += prefactor * tr(Cc * Vα * Gn_minus * Vβ)
         end
     end
 
@@ -412,6 +430,13 @@ end
 Fill `K` with the inverse RPA propagator kernel
 
     K = Π0 - Π.
+
+Storage convention:
+
+    K[β, α](q)
+
+where the row index `β` belongs to the sector `-q`, and the column index `α`
+belongs to the sector `q`.
 """
 function rpa_kernel!(
     K::AbstractMatrix{ComplexF64},
@@ -433,6 +458,10 @@ end
 Compute the inverse RPA propagator kernel
 
     K(q,z) = Π0 - Π(q,z).
+
+The output is stored as `K[β, α](q)`, with row sector `-q` and column sector
+`q`. Therefore solving `K \\ Sminus` gives the sector-`q` vector that contracts
+with `Splus`.
 """
 function rpa_kernel!(
     K::AbstractMatrix{ComplexF64},
@@ -445,7 +474,6 @@ function rpa_kernel!(
     aux::Union{Nothing, CondensationAux} = nothing,
 )
     nϕ = length(fields)
-
     size(K) == (nϕ, nϕ) ||
         throw(DimensionMismatch("`K` must have size ($(nϕ), $(nϕ))."))
 
@@ -478,8 +506,7 @@ end
 
 Zero-temperature Bose factor for BdG pole energies.
 
-For positive poles, `nB(E) = 0`.
-For negative poles, `nB(E) = -1`.
+For positive poles, `nB(E) = 0`. For negative poles, `nB(E) = -1`.
 
 If a nonzero-weight pole is numerically at zero energy, the normal-only
 polarization is ill-defined and the condensate treatment should be used.
