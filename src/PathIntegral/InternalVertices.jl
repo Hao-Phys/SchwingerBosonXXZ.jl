@@ -4,9 +4,9 @@
 
 Fill `V` with the reduced internal vertex for the constraint field `λ_a`.
 
-This is the reduced version of the constraint-field vertex in Appendix H:
-the common Fourier normalization `1 / sqrt(Nu * β)` and the corresponding
-momentum-frequency Kronecker delta have been stripped off.
+This is the reduced version of the constraint-field vertex. The common Fourier
+normalization `1 / sqrt(Nu * β)` and the corresponding momentum-frequency
+Kronecker delta have been stripped off.
 
 The reduced vertex is independent of `k`, `p`, and `sbs`. It is local in
 sublattice space and diagonal in Nambu and spin space.
@@ -32,9 +32,6 @@ function internal_vertices!(
     for σ in 1:2
         V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += im
         V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += im
-
-        # V[nambu_index(1, a, σ), nambu_index(1, a, σ)] += -1
-        # V[nambu_index(2, a, σ), nambu_index(2, a, σ)] += -1
     end
 
     return V
@@ -54,9 +51,8 @@ Arguments:
 - `δ = 1,2,3` labels one of the three independent bonds in `δ_{a -> a+1}`
 - `k`, `p` are the two bosonic momenta appearing in `V_α(k,p)`
 
-This implements the reduced vertices of Appendix H directly. The common
-normalization `1 / sqrt(Nu * β)` and the momentum-frequency Kronecker delta are
-not included.
+The common normalization `1 / sqrt(Nu * β)` and the momentum-frequency
+Kronecker delta are not included.
 
 Sector convention:
 
@@ -64,6 +60,11 @@ Sector convention:
 - in sector `q`, `kind = :Wbar` means the actual field `Wbar(-q)`;
 - the reduced vertex is called as `internal_vertices!(V, ..., k, p)` with
   transfer `k - p`.
+
+For normal channels B and C, the vertex has 11 and 22 Nambu blocks. For
+anomalous channels A and D, the vertex has the direct anomalous block and the
+transposed reversed anomalous block required by the corrected Nambu
+completion.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -95,9 +96,9 @@ function internal_vertices!(
     elseif X === :C
         _internal_C!(V, kind, κ, s, a, δ, k, p)
     elseif X === :A
-        _internal_A!(V, kind, κ, s, a, δ, p)
+        _internal_A!(V, kind, κ, s, a, δ, k, p)
     elseif X === :D
-        _internal_D!(V, kind, κ, s, a, δ, p)
+        _internal_D!(V, kind, κ, s, a, δ, k, p)
     else
         error("Unreachable internal channel: $X.")
     end
@@ -182,7 +183,7 @@ end
 
 
 # ----------------------------------------------------------------------
-# B channel: Eqs. (H13)--(H20)
+# B channel
 # ----------------------------------------------------------------------
 
 function _internal_B!(
@@ -198,55 +199,35 @@ function _internal_B!(
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H13): 11 block,
-        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ σ0
-        # _add_spin_matrix!(
-        #     V, 1, 1, a, ap,
-        #     -κ * _bond_phase(a, δ, p),
-        #     :σ0,
-        # )
+        # 11 block:
+        # -(κ/2) e^{i p⋅δ} P_{a,a+1} ⊗ σ0
         _add_spin_matrix!(
             V, 1, 1, a, ap,
-            -κ/2 * _bond_phase(a, δ, p),
+            -κ / 2 * _bond_phase(a, δ, p),
             :σ0,
         )
 
-        # Eq. (H14): 22 block,
-        # -κ e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
-        # _add_spin_matrix!(
-        #     V, 2, 2, ap, a,
-        #     -κ * conj(_bond_phase(a, δ, k)),
-        #     :σ0,
-        # )
+        # 22 block:
+        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
         _add_spin_matrix!(
             V, 2, 2, ap, a,
-            -κ/2 * conj(_bond_phase(a, δ, k)),
+            -κ / 2 * conj(_bond_phase(a, δ, k)),
             :σ0,
         )
     elseif kind === :Wbar
-        # Eq. (H18): 11 block,
-        # -κ s e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
-        # _add_spin_matrix!(
-        #     V, 1, 1, ap, a,
-        #     -κ * s * conj(_bond_phase(a, δ, k)),
-        #     :σ0,
-        # )
+        # 11 block:
+        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
         _add_spin_matrix!(
             V, 1, 1, ap, a,
-            -κ/2 * s * conj(_bond_phase(a, δ, k)),
+            -κ / 2 * s * conj(_bond_phase(a, δ, k)),
             :σ0,
         )
 
-        # Eq. (H19): 22 block,
-        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σ0
-        # _add_spin_matrix!(
-        #     V, 2, 2, a, ap,
-        #     -κ * s * _bond_phase(a, δ, p),
-        #     :σ0,
-        # )
+        # 22 block:
+        # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ σ0
         _add_spin_matrix!(
             V, 2, 2, a, ap,
-            -κ/2 * s * _bond_phase(a, δ, p),
+            -κ / 2 * s * _bond_phase(a, δ, p),
             :σ0,
         )
     else
@@ -258,7 +239,7 @@ end
 
 
 # ----------------------------------------------------------------------
-# C channel: Eqs. (H21)--(H26)
+# C channel
 # ----------------------------------------------------------------------
 
 function _internal_C!(
@@ -274,35 +255,35 @@ function _internal_C!(
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H21): 11 block,
-        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ σz
+        # 11 block:
+        # -(κ/2) e^{i p⋅δ} P_{a,a+1} ⊗ σz
         _add_spin_matrix!(
             V, 1, 1, a, ap,
-            -κ * _bond_phase(a, δ, p),
+            -κ / 2 * _bond_phase(a, δ, p),
             :σz,
         )
 
-        # Eq. (H22): 22 block,
-        # -κ e^{-i k⋅δ} P_{a+1,a} ⊗ σz
+        # 22 block:
+        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σz
         _add_spin_matrix!(
             V, 2, 2, ap, a,
-            -κ * conj(_bond_phase(a, δ, k)),
+            -κ / 2 * conj(_bond_phase(a, δ, k)),
             :σz,
         )
     elseif kind === :Wbar
-        # Eq. (H24): 11 block,
-        # -κ s e^{-i k⋅δ} P_{a+1,a} ⊗ σz
+        # 11 block:
+        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σz
         _add_spin_matrix!(
             V, 1, 1, ap, a,
-            -κ * s * conj(_bond_phase(a, δ, k)),
+            -κ / 2 * s * conj(_bond_phase(a, δ, k)),
             :σz,
         )
 
-        # Eq. (H25): 22 block,
-        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σz
+        # 22 block:
+        # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ σz
         _add_spin_matrix!(
             V, 2, 2, a, ap,
-            -κ * s * _bond_phase(a, δ, p),
+            -κ / 2 * s * _bond_phase(a, δ, p),
             :σz,
         )
     else
@@ -314,7 +295,7 @@ end
 
 
 # ----------------------------------------------------------------------
-# A channel: Eqs. (H28)--(H32)
+# A channel
 # ----------------------------------------------------------------------
 
 function _internal_A!(
@@ -324,24 +305,47 @@ function _internal_A!(
     s::Real,
     a::Int,
     δ::Int,
+    k::Vec3,
     p::Vec3,
 )
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H28): 12 block,
-        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ iσy
+        # Direct 12 block:
+        # -(κ/2) e^{i p⋅δ} P_{a,a+1} ⊗ iσy
         _add_spin_matrix!(
             V, 1, 2, a, ap,
-            -κ * _bond_phase(a, δ, p),
+            -κ / 2 * _bond_phase(a, δ, p),
+            :iσy,
+        )
+
+        # Transposed reversed 12 block:
+        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (iσy)^T
+        #
+        # Since (iσy)^T = -iσy, this is implemented as
+        # +(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ iσy.
+        _add_spin_matrix!(
+            V, 1, 2, ap, a,
+            +κ / 2 * conj(_bond_phase(a, δ, k)),
             :iσy,
         )
     elseif kind === :Wbar
-        # Eq. (H31): 21 block,
-        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ iσy
+        # Direct 21 block:
+        # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ iσy
         _add_spin_matrix!(
             V, 2, 1, a, ap,
-            -κ * s * _bond_phase(a, δ, p),
+            -κ / 2 * s * _bond_phase(a, δ, p),
+            :iσy,
+        )
+
+        # Transposed reversed 21 block:
+        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (iσy)^T
+        #
+        # Since (iσy)^T = -iσy, this is implemented as
+        # +(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ iσy.
+        _add_spin_matrix!(
+            V, 2, 1, ap, a,
+            +κ / 2 * s * conj(_bond_phase(a, δ, k)),
             :iσy,
         )
     else
@@ -353,7 +357,7 @@ end
 
 
 # ----------------------------------------------------------------------
-# D channel: Eqs. (H34)--(H37)
+# D channel
 # ----------------------------------------------------------------------
 
 function _internal_D!(
@@ -363,24 +367,45 @@ function _internal_D!(
     s::Real,
     a::Int,
     δ::Int,
+    k::Vec3,
     p::Vec3,
 )
     ap = mod1(a + 1, 3)
 
     if kind === :W
-        # Eq. (H34): 12 block,
-        # -κ e^{i p⋅δ} P_{a,a+1} ⊗ σx
+        # Direct 12 block:
+        # -(κ/2) e^{i p⋅δ} P_{a,a+1} ⊗ σx
         _add_spin_matrix!(
             V, 1, 2, a, ap,
-            -κ * _bond_phase(a, δ, p),
+            -κ / 2 * _bond_phase(a, δ, p),
+            :σx,
+        )
+
+        # Transposed reversed 12 block:
+        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (σx)^T
+        #
+        # Since (σx)^T = σx, this is the same spin matrix.
+        _add_spin_matrix!(
+            V, 1, 2, ap, a,
+            -κ / 2 * conj(_bond_phase(a, δ, k)),
             :σx,
         )
     elseif kind === :Wbar
-        # Eq. (H36): 21 block,
-        # -κ s e^{i p⋅δ} P_{a,a+1} ⊗ σx
+        # Direct 21 block:
+        # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ σx
         _add_spin_matrix!(
             V, 2, 1, a, ap,
-            -κ * s * _bond_phase(a, δ, p),
+            -κ / 2 * s * _bond_phase(a, δ, p),
+            :σx,
+        )
+
+        # Transposed reversed 21 block:
+        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (σx)^T
+        #
+        # Since (σx)^T = σx, this is the same spin matrix.
+        _add_spin_matrix!(
+            V, 2, 1, ap, a,
+            -κ / 2 * s * conj(_bond_phase(a, δ, k)),
             :σx,
         )
     else
