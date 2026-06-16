@@ -84,7 +84,10 @@ momentum-frequency Kronecker delta are not included.
 
 The momentum transfer of the reduced vertex is `k - p`. Therefore, when this
 function is called as `internal_vertices!(V, sbs, α, k + q, k)`, the field
-label `α` is interpreted as a sector-`q` field.
+label `α` is interpreted as a sector-`q` field. For anomalous channels, the
+called vertex may contain both the direct anomalous entry and its transposed
+reversed Nambu-completion entry; both belong to the same sector momentum
+`k - p`.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
