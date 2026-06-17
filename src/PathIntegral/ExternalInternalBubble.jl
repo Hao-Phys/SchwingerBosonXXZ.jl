@@ -5,34 +5,27 @@
 """
     external_internal_bubble!(
         Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
-        η, aux=nothing
+        η,
+        aux = nothing,
+        force_T0_bose_factor = false,
     )
 
-Fill `Sα` with the retarded zero-temperature external-internal bubble
+Fill `Sα` with the retarded external-internal bubble
+`S^{1+1;μ,R}_{α}(q,ω)` for all internal fields `α`.
 
-    S^{1+1;μ,R}_{α}(q, ω)
-
-for all internal fields `α`.
-
-This currently includes only the normal-normal contribution. Condensate-normal
-and normal-condensate pieces are intentionally left for later.
+This currently includes only the normal-normal contribution.
 
 Momentum conventions:
 
-- `q_ext` is the external momentum in the original reciprocal-lattice coordinate.
-  It is used only in `external_vertex(μ, q_ext)`.
-- `q_reshaped` is the folded/reshaped magnetic-Brillouin-zone momentum.
-  It is used in the internal Green's functions and internal vertices.
+- `q_ext` is the external momentum in the original reciprocal-lattice
+  coordinate. It is used only in `external_vertex(μ, q_ext)`.
+- `q_reshaped` is the folded/reshaped magnetic-Brillouin-zone momentum. It is
+  used in the internal Green's functions and internal vertices.
 
-The implemented normal-normal contribution follows Eq. (171):
-
-    S^{1+1;μ,R}_{α,nn}(q,ω)
-      = 1 / (4 sqrt(Ns Nu))
-        sum_k sum_{a,b}
-        tr[C^+_{k+q,b} V_α(k+q,k) C^-_{k,a} U^μ_q]
-        / [ω + iη - ω_{-k,a} - ω_{k+q,b}]
-
-where `U^μ_q` is already phase dressed.
+By default, the normal-normal contribution uses finite-temperature Bose
+factors in the Matsubara-summed expression. Setting
+`force_T0_bose_factor = true` restores the legacy zero-temperature
+negative-pole to positive-pole contribution.
 """
 function external_internal_bubble!(
     Sα::AbstractVector{ComplexF64},
@@ -45,6 +38,7 @@ function external_internal_bubble!(
     μ::Int;
     η::Real,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     length(Sα) == length(fields) ||
         throw(DimensionMismatch(
@@ -64,6 +58,7 @@ function external_internal_bubble!(
         μ;
         η = η,
         aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     return Sα
@@ -73,7 +68,9 @@ end
 """
     external_internal_bubble_normal!(
         Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
-        η, aux=nothing
+        η,
+        aux = nothing,
+        force_T0_bose_factor = false,
     )
 
 Add the normal-normal contribution to `Sα`.
@@ -93,9 +90,9 @@ function external_internal_bubble_normal!(
     μ::Int;
     η::Real,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
-
     length(Sα) == nϕ ||
         throw(DimensionMismatch("`Sα` must have length $(nϕ)."))
 
@@ -107,8 +104,10 @@ function external_internal_bubble_normal!(
     end
 
     (; L) = sbs
+
     Nu = L^2
     Ns = 3Nu
+    βtemp = 1 / sbs.T
 
     # `external_vertex(μ, q_ext)` already includes the phase factor
     # sum_ρ exp(-i q⋅dρ) U^μ_{ρ,0}.
@@ -129,41 +128,73 @@ function external_internal_bubble_normal!(
 
             accum = 0.0 + 0.0im
 
-            # Eq. (171): C^-_{k,a} on the k line and C^+_{k+q,b}
-            # on the k+q line.
-            for a in 1:6
-                lneg = 6 + a
-                iszero(weights_k[lneg]) && continue
+            if force_T0_bose_factor
+                # Legacy zero-temperature expression: C^- on the k line and
+                # C^+ on the k+q line.
+                for a in 1:6
+                    lneg = 6 + a
+                    iszero(weights_k[lneg]) && continue
 
-                ω1 = -ϵs_k[lneg]
+                    ω1 = -ϵs_k[lneg]
 
-                for b in 1:6
-                    lpos = b
-                    iszero(weights_kq[lpos]) && continue
+                    for b in 1:6
+                        lpos = b
+                        iszero(weights_kq[lpos]) && continue
 
-                    ω2 = ϵs_kq[lpos]
+                        ω2 = ϵs_kq[lpos]
 
-                    denom = ω + im * η - ω1 - ω2
+                        denom = ω + im * η - ω1 - ω2
 
-                    # _residue_vertex_trace is definined in InternalVertices.jl
-                    coherence = _residue_vertex_trace(
-                        Vkq,
-                        weights_kq,
-                        lpos,
-                        Vα,
-                        Vk,
-                        weights_k,
-                        lneg,
-                        Uq,
-                    )
+                        coherence = _residue_vertex_trace(
+                            Vkq,
+                            weights_kq,
+                            lpos,
+                            Vα,
+                            Vk,
+                            weights_k,
+                            lneg,
+                            Uq,
+                        )
 
-                    accum += coherence / denom
+                        accum += coherence / denom
+                    end
+                end
+            else
+                # Finite-temperature Matsubara-summed expression.
+                for m in eachindex(ϵs_k)
+                    iszero(weights_k[m]) && continue
+
+                    Em = ϵs_k[m]
+                    nb_m = _nB_BdG(Em, βtemp)
+
+                    for n in eachindex(ϵs_kq)
+                        iszero(weights_kq[n]) && continue
+
+                        En = ϵs_kq[n]
+                        nb_n = _nB_BdG(En, βtemp)
+
+                        occdiff = nb_n - nb_m
+                        iszero(occdiff) && continue
+
+                        denom = ω + im * η + Em - En
+
+                        coherence = _residue_vertex_trace(
+                            Vkq,
+                            weights_kq,
+                            n,
+                            Vα,
+                            Vk,
+                            weights_k,
+                            m,
+                            Uq,
+                        )
+
+                        accum += coherence * occdiff / denom
+                    end
                 end
             end
 
             # The k-grid represents the magnetic-Brillouin-zone average.
-            # Eq. (171) has an explicit sum over k, so the finite-grid
-            # implementation uses the average normalization here.
             Sα[iα] += prefactor * accum / Nk
         end
     end
@@ -175,7 +206,9 @@ end
 """
     external_internal_bubble_pair!(
         Splus, Sminus, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ, ν;
-        η, aux=nothing
+        η,
+        aux = nothing,
+        force_T0_bose_factor = false,
     )
 
 Compute the two normal-normal external-internal bubbles needed for Fig. 1(b):
@@ -198,6 +231,7 @@ function external_internal_bubble_pair!(
     ν::Int;
     η::Real,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     external_internal_bubble!(
         Splus,
@@ -210,6 +244,7 @@ function external_internal_bubble_pair!(
         μ;
         η = η,
         aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     external_internal_bubble!(
@@ -223,6 +258,7 @@ function external_internal_bubble_pair!(
         ν;
         η = -η,
         aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     return Splus, Sminus

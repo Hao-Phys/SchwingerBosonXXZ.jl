@@ -84,10 +84,11 @@ momentum-frequency Kronecker delta are not included.
 
 The momentum transfer of the reduced vertex is `k - p`. Therefore, when this
 function is called as `internal_vertices!(V, sbs, α, k + q, k)`, the field
-label `α` is interpreted as a sector-`q` field. For anomalous channels, the
-called vertex may contain both the direct anomalous entry and its transposed
-reversed Nambu-completion entry; both belong to the same sector momentum
-`k - p`.
+label `α` is interpreted as a sector-`q` field.
+
+For anomalous channels, the called vertex may contain both the direct anomalous
+entry and its transposed reversed Nambu-completion entry; both belong to the
+same sector momentum `k - p`.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -173,14 +174,25 @@ end
 # ----------------------------------------------------------------------
 
 """
-    polarization!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
+    polarization!(
+        Π, sbs, fields, kgrid, q, z;
+        Nflavor = 2,
+        aux = nothing,
+        force_T0_bose_factor = false,
+    )
 
-Fill `Π` with the zero-temperature polarization operator at complex external
-frequency `z`.
+Fill `Π` with the polarization operator at complex external frequency `z`.
 
-The normal-normal contribution is always included. If `aux` contains a
-condensate, this function also adds the mixed condensate-normal terms
-Π_cn + Π_nc.
+By default, the normal-normal contribution uses finite-temperature Bose
+factors,
+
+    nB(En) - nB(Em),
+
+in the Matsubara-summed expression. Setting `force_T0_bose_factor = true`
+restores the legacy zero-temperature occupation factors.
+
+If `aux` contains a condensate, this function also adds the mixed
+condensate-normal terms Π_cn + Π_nc.
 
 The purely elastic condensate-condensate contribution `Π_cc` is intentionally
 omitted.
@@ -201,6 +213,7 @@ function polarization!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     fill!(Π, 0.0 + 0.0im)
 
@@ -213,6 +226,7 @@ function polarization!(
         z;
         Nflavor = Nflavor,
         aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     polarization_condensate_normal!(
@@ -224,6 +238,7 @@ function polarization!(
         z;
         Nflavor = Nflavor,
         aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     return Π
@@ -231,7 +246,12 @@ end
 
 
 """
-    polarization_normal!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
+    polarization_normal!(
+        Π, sbs, fields, kgrid, q, z;
+        Nflavor = 2,
+        aux = nothing,
+        force_T0_bose_factor = false,
+    )
 
 Add the normal-normal polarization contribution to `Π`.
 
@@ -249,6 +269,7 @@ function polarization_normal!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
     size(Π) == (nϕ, nϕ) ||
@@ -256,6 +277,8 @@ function polarization_normal!(
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    βtemp = 1 / sbs.T
 
     Vα = zeros(ComplexF64, 12, 12)
     Vβ = zeros(ComplexF64, 12, 12)
@@ -272,9 +295,9 @@ function polarization_normal!(
             # Sector q: transfer (k + q) - k = q.
             internal_vertices!(Vα, sbs, α, kq, k)
 
-            for (iβ, β) in pairs(fields)
+            for (iβ, βfield) in pairs(fields)
                 # Sector -q: transfer k - (k + q) = -q.
-                internal_vertices!(Vβ, sbs, β, k, kq)
+                internal_vertices!(Vβ, sbs, βfield, k, kq)
 
                 accum = 0.0 + 0.0im
 
@@ -282,13 +305,21 @@ function polarization_normal!(
                     iszero(weights_k[m]) && continue
 
                     Em = ϵs_k[m]
-                    nb_m = _nB_T0(Em)
+                    nb_m = _nB_BdG(
+                        Em,
+                        βtemp;
+                        force_T0_bose_factor = force_T0_bose_factor,
+                    )
 
                     for n in eachindex(ϵs_kq)
                         iszero(weights_kq[n]) && continue
 
                         En = ϵs_kq[n]
-                        nb_n = _nB_T0(En)
+                        nb_n = _nB_BdG(
+                            En,
+                            βtemp;
+                            force_T0_bose_factor = force_T0_bose_factor,
+                        )
 
                         occdiff = nb_n - nb_m
                         iszero(occdiff) && continue
@@ -322,7 +353,10 @@ end
 
 """
     polarization_condensate_normal!(
-        Π, sbs, fields, kgrid, q, z; Nflavor = 2, aux = nothing,
+        Π, sbs, fields, kgrid, q, z;
+        Nflavor = 2,
+        aux = nothing,
+        force_T0_bose_factor = false,
     )
 
 Add the mixed condensate-normal polarization contribution to `Π`.
@@ -332,6 +366,10 @@ static condensed contribution and the other is the full normal saddle-point
 Green's function. The function is a no-op unless
 
     aux !== nothing && aux.conden_index !== nothing.
+
+The keyword `force_T0_bose_factor` is accepted for API consistency with
+`polarization_normal!`. The mixed condensate-normal expression itself is left
+in the existing static-condensate convention.
 
 Let `qc = kgrid[aux.conden_index]` be the condensate momentum.
 
@@ -358,6 +396,7 @@ function polarization_condensate_normal!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     _has_condensate(aux) || return Π
 
@@ -388,8 +427,8 @@ function polarization_condensate_normal!(
     for (iα, α) in pairs(fields)
         internal_vertices!(Vα, sbs, α, k_n, k_c)
 
-        for (iβ, β) in pairs(fields)
-            internal_vertices!(Vβ, sbs, β, k_c, k_n)
+        for (iβ, βfield) in pairs(fields)
+            internal_vertices!(Vβ, sbs, βfield, k_c, k_n)
 
             # Store as Π[β, α](q): row sector -q, column sector q.
             Π[iβ, iα] += prefactor * tr(Gn_plus * Vα * Cc * Vβ)
@@ -411,8 +450,8 @@ function polarization_condensate_normal!(
     for (iα, α) in pairs(fields)
         internal_vertices!(Vα, sbs, α, k_c, k_n)
 
-        for (iβ, β) in pairs(fields)
-            internal_vertices!(Vβ, sbs, β, k_n, k_c)
+        for (iβ, βfield) in pairs(fields)
+            internal_vertices!(Vβ, sbs, βfield, k_n, k_c)
 
             # Store as Π[β, α](q): row sector -q, column sector q.
             Π[iβ, iα] += prefactor * tr(Cc * Vα * Gn_minus * Vβ)
@@ -456,7 +495,12 @@ end
 
 
 """
-    rpa_kernel!(K, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
+    rpa_kernel!(
+        K, sbs, fields, kgrid, q, z;
+        Nflavor = 2,
+        aux = nothing,
+        force_T0_bose_factor = false,
+    )
 
 Compute the inverse RPA propagator kernel
 
@@ -465,6 +509,10 @@ Compute the inverse RPA propagator kernel
 The output is stored as `K[β, α](q)`, with row sector `-q` and column sector
 `q`. Therefore solving `K \\ Sminus` gives the sector-`q` vector that contracts
 with `Splus`.
+
+By default, the polarization uses finite-temperature Bose factors. Setting
+`force_T0_bose_factor = true` restores the legacy zero-temperature occupation
+difference.
 """
 function rpa_kernel!(
     K::AbstractMatrix{ComplexF64},
@@ -475,6 +523,7 @@ function rpa_kernel!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, CondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
     size(K) == (nϕ, nϕ) ||
@@ -494,6 +543,7 @@ function rpa_kernel!(
         z;
         Nflavor = Nflavor,
         aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     return rpa_kernel!(K, Π0, Π)
@@ -505,28 +555,53 @@ end
 # ----------------------------------------------------------------------
 
 """
-    _nB_T0(E)
+    _nB_BdG(E, β; force_T0_bose_factor = false)
 
-Zero-temperature Bose factor for BdG pole energies.
+Bose factor for BdG pole energies.
 
-For positive poles, `nB(E) = 0`. For negative poles, `nB(E) = -1`.
+By default this returns the finite-temperature Bose function
 
-If a nonzero-weight pole is numerically at zero energy, the normal-only
-polarization is ill-defined and the condensate treatment should be used.
+    nB(E) = 1 / (exp(βE) - 1),
+
+for both positive and negative BdG poles. Negative-energy poles therefore obey
+
+    nB(-E) = -1 - nB(E).
+
+Setting `force_T0_bose_factor = true` restores the legacy zero-temperature
+limits: `0` for positive poles and `-1` for negative poles.
 """
-@inline function _nB_T0(E::Real)
-    atol = 1e-12
+@inline function _nB_BdG(
+    E::Real,
+    β::Real;
+    force_T0_bose_factor::Bool = false,
+    zero_tol::Float64 = 1e-12,
+)
+    if force_T0_bose_factor
+        if E > zero_tol
+            return 0.0
+        elseif E < -zero_tol
+            return -1.0
+        else
+            throw(ArgumentError(
+                "Encountered a zero-energy BdG pole in the T=0 Bose factor. " *
+                "Pass condensation data through `aux`, or treat the condensate explicitly."
+            ))
+        end
+    end
 
-    if E > atol
+    x = β * real(E)
+
+    if abs(x) < zero_tol
+        throw(ArgumentError(
+            "Encountered a near-zero BdG pole in the finite-T Bose factor: βE = $x. " *
+            "Pass condensation data through `aux`, or treat the condensate explicitly."
+        ))
+    elseif x > 700
         return 0.0
-    elseif E < -atol
+    elseif x < -700
         return -1.0
     else
-        throw(ArgumentError(
-            "Encountered a zero-energy pole in the normal bubble. " *
-            "Pass condensation data through `aux` so pinned condensate modes are removed, " *
-            "or treat the condensate contribution explicitly."
-        ))
+        return 1 / expm1(x)
     end
 end
 
