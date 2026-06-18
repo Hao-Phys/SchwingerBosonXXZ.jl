@@ -4,13 +4,14 @@
 
 """
     external_internal_bubble!(
-        Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sβ, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
         η,
         aux = nothing,
         force_T0_bose_factor = false,
+        include_condensate = true,
     )
 
-Fill `Sα` with the retarded column external-internal bubble
+Fill `Sβ` with the retarded column external-internal bubble
 
     S^{1+1;μ,R}_{β}(q,ω)
 
@@ -26,12 +27,12 @@ Momentum conventions:
 The column bubble uses the column internal vertex `V_β(k+q,k)` and the
 phase-dressed external vertex `U^μ_q = external_vertex(μ, q_ext)`.
 
-If `aux` contains a condensate, the mixed normal-condensate and
-condensate-normal pieces are included. The purely elastic condensate-condensate
-piece is omitted.
+If `include_condensate=true` and `aux` contains a condensate, the mixed
+normal-condensate and condensate-normal pieces are included. The purely
+elastic condensate-condensate piece is omitted.
 """
 function external_internal_bubble!(
-    Sα::AbstractVector{ComplexF64},
+    Sβ::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     kgrid,
@@ -42,16 +43,17 @@ function external_internal_bubble!(
     η::Real,
     aux::Union{Nothing, CondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
+    include_condensate::Bool = true,
 )
-    length(Sα) == length(fields) ||
+    length(Sβ) == length(fields) ||
         throw(DimensionMismatch(
-            "`Sα` must have length $(length(fields))."
+            "`Sβ` must have length $(length(fields))."
         ))
 
-    Sα .= 0.0 + 0.0im
+    Sβ .= 0.0 + 0.0im
 
     external_internal_bubble_normal!(
-        Sα,
+        Sβ,
         sbs,
         fields,
         kgrid,
@@ -64,21 +66,23 @@ function external_internal_bubble!(
         force_T0_bose_factor = force_T0_bose_factor,
     )
 
-    external_internal_bubble_condensate!(
-        Sα,
-        sbs,
-        fields,
-        kgrid,
-        q_ext,
-        q_reshaped,
-        ω,
-        μ;
-        η = η,
-        aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
-    )
+    if include_condensate
+        external_internal_bubble_condensate!(
+            Sβ,
+            sbs,
+            fields,
+            kgrid,
+            q_ext,
+            q_reshaped,
+            ω,
+            μ;
+            η = η,
+            aux = aux,
+            force_T0_bose_factor = force_T0_bose_factor,
+        )
+    end
 
-    return Sα
+    return Sβ
 end
 
 """
@@ -87,6 +91,7 @@ end
         η,
         aux = nothing,
         force_T0_bose_factor = false,
+        include_condensate = true,
     )
 
 Fill `Sα` with the retarded row external-internal bubble
@@ -104,6 +109,10 @@ row-side vertex is obtained by the row-column mapping
 
 The dagger in the notation labels the row-side derivative vertex. It does not
 mean Hermitian conjugation.
+
+If `include_condensate=true` and `aux` contains a condensate, the mixed
+normal-condensate and condensate-normal pieces are included. The purely
+elastic condensate-condensate piece is omitted.
 """
 function external_internal_bubble_row!(
     Sα::AbstractVector{ComplexF64},
@@ -117,6 +126,7 @@ function external_internal_bubble_row!(
     η::Real,
     aux::Union{Nothing, CondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
+    include_condensate::Bool = true,
 )
     length(Sα) == length(fields) ||
         throw(DimensionMismatch(
@@ -139,32 +149,34 @@ function external_internal_bubble_row!(
         force_T0_bose_factor = force_T0_bose_factor,
     )
 
-    external_internal_bubble_row_condensate!(
-        Sα,
-        sbs,
-        fields,
-        kgrid,
-        q_ext,
-        q_reshaped,
-        ω,
-        μ;
-        η = η,
-        aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
-    )
+    if include_condensate
+        external_internal_bubble_row_condensate!(
+            Sα,
+            sbs,
+            fields,
+            kgrid,
+            q_ext,
+            q_reshaped,
+            ω,
+            μ;
+            η = η,
+            aux = aux,
+            force_T0_bose_factor = force_T0_bose_factor,
+        )
+    end
 
     return Sα
 end
 
 """
     external_internal_bubble_normal!(
-        Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sβ, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
         η,
         aux = nothing,
         force_T0_bose_factor = false,
     )
 
-Add the normal-normal contribution to the column bubble `Sα`.
+Add the normal-normal contribution to the column bubble `Sβ`.
 
 This implements the Matsubara-summed expression
 
@@ -179,7 +191,7 @@ The finite grid is the explicit momentum sum in this formula; no additional
 division by `length(kgrid)` is applied.
 """
 function external_internal_bubble_normal!(
-    Sα::AbstractVector{ComplexF64},
+    Sβ::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     kgrid,
@@ -192,8 +204,8 @@ function external_internal_bubble_normal!(
     force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
-    length(Sα) == nϕ ||
-        throw(DimensionMismatch("`Sα` must have length $(nϕ)."))
+    length(Sβ) == nϕ ||
+        throw(DimensionMismatch("`Sβ` must have length $(nϕ)."))
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
@@ -250,11 +262,11 @@ function external_internal_bubble_normal!(
                 end
             end
 
-            Sα[iβ] += prefactor * accum
+            Sβ[iβ] += prefactor * accum
         end
     end
 
-    return Sα
+    return Sβ
 end
 
 """
@@ -359,7 +371,7 @@ end
 
 """
     external_internal_bubble_condensate!(
-        Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sβ, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
         η,
         aux = nothing,
         force_T0_bose_factor = false,
@@ -371,7 +383,7 @@ The function is a no-op unless `aux` contains a condensate. The elastic
 condensate-condensate contribution is omitted.
 """
 function external_internal_bubble_condensate!(
-    Sα::AbstractVector{ComplexF64},
+    Sβ::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     kgrid,
@@ -383,11 +395,11 @@ function external_internal_bubble_condensate!(
     aux::Union{Nothing, CondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
-    _has_condensate(aux) || return Sα
+    _has_condensate(aux) || return Sβ
 
     nϕ = length(fields)
-    length(Sα) == nϕ ||
-        throw(DimensionMismatch("`Sα` must have length $(nϕ)."))
+    length(Sβ) == nϕ ||
+        throw(DimensionMismatch("`Sβ` must have length $(nϕ)."))
 
     (; L) = sbs
     Nu = L^2
@@ -439,7 +451,7 @@ function external_internal_bubble_condensate!(
             end
         end
 
-        Sα[iβ] += prefactor * accum
+        Sβ[iβ] += prefactor * accum
     end
 
     # Normal on the k line, condensate on the k + q line.
@@ -478,10 +490,10 @@ function external_internal_bubble_condensate!(
             end
         end
 
-        Sα[iβ] += prefactor * accum
+        Sβ[iβ] += prefactor * accum
     end
 
-    return Sα
+    return Sβ
 end
 
 """
@@ -617,6 +629,7 @@ end
         η,
         aux = nothing,
         force_T0_bose_factor = false,
+        include_condensate = true,
     )
 
 Compute the two external-internal bubbles needed for Fig. 1(b):
@@ -626,6 +639,10 @@ Compute the two external-internal bubbles needed for Fig. 1(b):
 
 The second object is the row-side bubble in the same external sector `q`; it
 is not obtained by Hermitian conjugation.
+
+If `include_condensate=true` and `aux` contains a condensate, the mixed
+normal-condensate and condensate-normal pieces are included. The purely
+elastic condensate-condensate piece is omitted.
 """
 function external_internal_bubble_pair!(
     Splus::AbstractVector{ComplexF64},
@@ -641,6 +658,7 @@ function external_internal_bubble_pair!(
     η::Real,
     aux::Union{Nothing, CondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
+    include_condensate::Bool = true,
 )
     external_internal_bubble!(
         Splus,
@@ -654,6 +672,7 @@ function external_internal_bubble_pair!(
         η = η,
         aux = aux,
         force_T0_bose_factor = force_T0_bose_factor,
+        include_condensate = include_condensate,
     )
 
     external_internal_bubble_row!(
@@ -668,6 +687,7 @@ function external_internal_bubble_pair!(
         η = η,
         aux = aux,
         force_T0_bose_factor = force_T0_bose_factor,
+        include_condensate = include_condensate,
     )
 
     return Splus, Srow
