@@ -19,13 +19,18 @@ path-integral Green-function trace formula.
 Returns `ret_normal, ret_condensate`, where both arrays have size
 `3 × length(energies)`.
 
-By default, the normal-normal part uses finite-temperature Bose factors.
+By default, the normal-normal part uses finite-temperature Bose factors and
+the fluctuation-dissipation prefactor
+
+    1 / (1 - exp(-βω)).
+
 Setting `force_T0_bose_factor = true` restores the legacy zero-temperature
 negative-pole to positive-pole contribution.
 
 This version matches the canonical finite-size condensate convention
 `ik == aux.conden_index`. The mixed condensate contribution is added from
-`G_condensed(k = qc) × G_normal(k + q = qc + q)`.
+
+    G_condensed(k = qc) × G_normal(k + q = qc + q).
 """
 function dssf_SP(
     sbs::SchwingerBosonSystem,
@@ -63,7 +68,7 @@ function dssf_SP(
     (; L) = sbs
 
     Ns = 3L^2
-    βtemp = 1 / sbs.T
+    βtemp = _inverse_temperature(sbs)
 
     q_reshaped = to_reshaped_rlu(q)
 
@@ -80,7 +85,6 @@ function dssf_SP(
     # ------------------------------------------------------------------
     # Normal-normal contribution.
     # ------------------------------------------------------------------
-
     for (ik, k) in enumerate(k_grid)
         kq = k + q_reshaped
 
@@ -115,21 +119,14 @@ function dssf_SP(
 
                     for μ in 1:3
                         trace_weight = _residue_vertex_trace(
-                            Vkq,
-                            weights_kq,
-                            lpos,
-                            Umq[μ],
-                            Vk,
-                            weights_k,
-                            lneg,
-                            Uq[μ],
+                            Vkq, weights_kq, lpos, Umq[μ],
+                            Vk, weights_k, lneg, Uq[μ],
                         )
 
                         weight = -real(trace_weight) / (8Ns)
 
                         for (ie, energy) in enumerate(energies)
-                            ret_normal[μ, ie] +=
-                                weight * lorentzian(energy - ΔE, Γ)
+                            ret_normal[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
                         end
                     end
                 end
@@ -176,24 +173,14 @@ function dssf_SP(
 
                     for μ in 1:3
                         trace_weight = _residue_vertex_trace(
-                            Vkq,
-                            weights_kq,
-                            n,
-                            Umq[μ],
-                            Vk,
-                            weights_k,
-                            m,
-                            Uq[μ],
+                            Vkq, weights_kq, n, Umq[μ],
+                            Vk, weights_k, m, Uq[μ],
                         )
 
-                        weight =
-                            -real(trace_weight) *
-                            transition_factor /
-                            (8Ns)
+                        weight = -real(trace_weight) * transition_factor / (8Ns)
 
                         for (ie, energy) in enumerate(energies)
-                            ret_normal[μ, ie] +=
-                                weight * lorentzian(energy - ΔE, Γ)
+                            ret_normal[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
                         end
                     end
                 end
@@ -209,14 +196,13 @@ function dssf_SP(
     # The condensed canonical line is the V2 / -k line, which corresponds to
     # the negative pole of G(k). Therefore we set
     #
-    #     k = qc,
+    #     k     = qc,
     #     k + q = qc + q.
     #
     # Green_SP_condensed_residues already assigns the pinned poles weight
     # aux.ξ + 1. The extra L^2 below is the collapsed finite-size momentum
     # sum.
     # ------------------------------------------------------------------
-
     if has_condensate
         qc = k_grid[aux.conden_index]
 
@@ -257,23 +243,14 @@ function dssf_SP(
 
                 for μ in 1:3
                     trace_weight = _residue_vertex_trace(
-                        Vn,
-                        weights_n,
-                        lpos,
-                        Umq[μ],
-                        Vc,
-                        weights_c,
-                        lcond_neg,
-                        Uq[μ],
+                        Vn, weights_n, lpos, Umq[μ],
+                        Vc, weights_c, lcond_neg, Uq[μ],
                     )
 
-                    weight =
-                        thermal_factor *
-                        (-L^2 * real(trace_weight) / (8Ns))
+                    weight = thermal_factor * (-L^2 * real(trace_weight) / (8Ns))
 
                     for (ie, energy) in enumerate(energies)
-                        ret_condensate[μ, ie] +=
-                            weight * lorentzian(energy - ΔE, Γ)
+                        ret_condensate[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
                     end
                 end
             end
@@ -282,7 +259,6 @@ function dssf_SP(
 
     return ret_normal, ret_condensate
 end
-
 
 """
     dssf_FL(
@@ -301,17 +277,21 @@ end
 Compute the Gaussian-fluctuation counter-diagram contribution to the dynamical
 spin structure factor.
 
-This implements the normal-normal part of the Fig. 1(b) contribution only,
+This implements the Fig. 1(b) contribution in the row-column sector convention
+of the current note:
 
     χ_FL^{μμ}(q,ω)
-        =
-        (1/N) S_α^{1+1;μ}(q,ω)
-        D_{αβ}(q,ω)
-        S_β^{1+1;μ}(-q,-ω),
+        = (1/N) S^{1+1;μ}_{β}(q,ω)
+                D_{βα}(q,ω)
+                S^{†,1+1;μ}_{α}(q,ω),
 
 with
 
     D(q,z) = [Π0(q) - Π(q,z)]^{-1}.
+
+The first external bubble is a column bubble, while the second is the row-side
+bubble in the same external sector. The row-side dagger labels the Gaussian
+row partner and does not denote Hermitian conjugation.
 
 The returned array has size `3 × length(energies)`.
 
@@ -319,9 +299,6 @@ By default, the RPA polarization and the external-internal bubbles use
 finite-temperature Bose factors. Setting `force_T0_bose_factor = true`
 restores the legacy zero-temperature occupation factors for comparison with
 previous results.
-
-Current limitation: the condensate-normal and normal-condensate pieces of the
-external-internal bubbles are not included yet.
 """
 function dssf_FL(
     sbs::SchwingerBosonSystem,
@@ -371,17 +348,11 @@ function dssf_FL(
     Π = zeros(ComplexF64, nϕ, nϕ)
     K = zeros(ComplexF64, nϕ, nϕ)
 
-    Splus = zeros(ComplexF64, nϕ)
-    Sminus = zeros(ComplexF64, nϕ)
+    Scol = zeros(ComplexF64, nϕ)
+    Srow = zeros(ComplexF64, nϕ)
 
     Pi0!(Π0, sbs, fields)
 
-    # For the normal-only fluctuation calculation, use the regular normal
-    # residue provider.
-    #
-    # In the condensed phase, passing `aux` lets the lower Green-function layer
-    # remove or regularize pinned condensate poles, while the explicit
-    # condensate-normal pieces are left for a later implementation.
     aux_normal = include_condensation && aux.conden_index !== nothing ? aux : nothing
 
     for (ie, energy) in enumerate(energies)
@@ -402,11 +373,11 @@ function dssf_FL(
         rpa_kernel!(K, Π0, Π)
 
         for μ in 1:3
-            # First bubble:
+            # Column bubble:
             #
-            #     Splus[α] = S^{1+1;μ,R}_α(q, ω)
+            #     Scol[β] = S^{1+1;μ,R}_{β}(q, ω).
             external_internal_bubble!(
-                Splus,
+                Scol,
                 sbs,
                 fields,
                 k_grid,
@@ -419,32 +390,32 @@ function dssf_FL(
                 force_T0_bose_factor = force_T0_bose_factor,
             )
 
-            # Second bubble:
+            # Row bubble:
             #
-            #     Sminus[α] = S^{1+1;μ,R}_α(-q, -ω)
+            #     Srow[α] = S^{†,1+1;μ,R}_{α}(q, ω).
             #
-            # The sign of `η` is negative because this factor is evaluated
-            # after the full retarded continuation of the product, giving the
-            # denominator -ω - i0⁺ + ... in the second bubble.
-            external_internal_bubble!(
-                Sminus,
+            # This is not a Hermitian conjugate and not a separate `-q`
+            # column bubble. It is the row-side Gaussian partner in the same
+            # sector.
+            external_internal_bubble_row!(
+                Srow,
                 sbs,
                 fields,
                 k_grid,
-                -q,
-                -q_reshaped,
-                -energy,
+                q,
+                q_reshaped,
+                energy,
                 μ;
-                η = -Γ,
+                η = Γ,
                 aux = aux_normal,
                 force_T0_bose_factor = force_T0_bose_factor,
             )
 
-            # χ_FL = (1/N) Splus^T D Sminus
+            # χ_FL = (1/N) Scol^T D Srow, with D = K^{-1}.
             #
             # Use transpose, not adjoint, because this is an index contraction
             # over auxiliary-field labels, not a Hermitian inner product.
-            χ_FL = (1 / Nflavor) * (transpose(Splus) * (K \ Sminus))
+            χ_FL = (1 / Nflavor) * (transpose(Scol) * (K \ Srow))
 
             ret_FL[μ, ie] = imag(χ_FL) / π
         end

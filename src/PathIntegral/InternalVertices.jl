@@ -4,12 +4,15 @@
 
 Fill `V` with the reduced internal vertex for the constraint field `λ_a`.
 
-This is the reduced version of the constraint-field vertex. The common Fourier
-normalization `1 / sqrt(Nu * β)` and the corresponding momentum-frequency
-Kronecker delta have been stripped off.
+This is the reduced version of the constraint-field vertex in Appendix H of
+the path-integral note. The common Fourier normalization
+`1 / sqrt(Nu * β)` and the corresponding momentum-frequency Kronecker delta
+have been stripped off.
 
 The reduced vertex is independent of `k`, `p`, and `sbs`. It is local in
-sublattice space and diagonal in Nambu and spin space.
+sublattice space and diagonal in Nambu and spin space. In the convergence
+factor-free reduced vertex used after the Matsubara summation, both particle
+and hole diagonal blocks carry the coefficient `im`.
 
 The factor `im` comes directly from the constraint coupling in the action.
 """
@@ -37,34 +40,35 @@ function internal_vertices!(
     return V
 end
 
-
 """
     internal_vertices!(V, sbs, kind, X, a, δ, k, p)
 
-Fill `V` with the reduced internal vertex for one independent auxiliary field.
+Fill `V` with the reduced **column-side** internal vertex for one independent
+auxiliary field.
 
 Arguments:
 
-- `kind = :W` or `:Wbar`
-- `X = :A, :B, :C, :D`
-- `a = 1,2,3` labels the oriented sublattice pair `a -> a + 1`
-- `δ = 1,2,3` labels one of the three independent bonds in `δ_{a -> a+1}`
-- `k`, `p` are the two bosonic momenta appearing in `V_α(k,p)`
-
-The common normalization `1 / sqrt(Nu * β)` and the momentum-frequency
-Kronecker delta are not included.
+- `kind = :W` or `:Wbar`;
+- `X = :A, :B, :C, :D`;
+- `a = 1,2,3` labels the oriented sublattice pair `a -> a + 1`;
+- `δ = 1,2,3` labels one of the three independent bonds in `δ_{a -> a+1}`;
+- `k`, `p` are the two bosonic momenta appearing in `V_α(k,p)`.
 
 Sector convention:
 
 - in sector `q`, `kind = :W` means the actual field `W(q)`;
 - in sector `q`, `kind = :Wbar` means the actual field `Wbar(-q)`;
-- the reduced vertex is called as `internal_vertices!(V, ..., k, p)` with
-  transfer `k - p`.
+- the reduced vertex is called with transfer `k - p = q`.
 
-For normal channels B and C, the vertex has 11 and 22 Nambu blocks. For
-anomalous channels A and D, the vertex has the direct anomalous block and the
-transposed reversed anomalous block required by the corrected Nambu
-completion.
+The common normalization `1 / sqrt(Nu * β)` and the momentum-frequency
+Kronecker delta are not included.
+
+This implements the Appendix-H reduced vertices of the current note. All
+bond operators carry the operator-level factor `1/2`, so every HS vertex
+contains the coefficient `-κ / 2` or `-κ s / 2`. For normal channels B and C,
+the vertex has both 11 and 22 Nambu blocks. For anomalous channels A and D,
+the vertex contains both the direct anomalous block and the transposed
+reversed block required by the corrected Nambu completion.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -106,7 +110,6 @@ function internal_vertices!(
     return V
 end
 
-
 # ----------------------------------------------------------------------
 # Couplings from Eqs. (25), (26), and (44)
 # ----------------------------------------------------------------------
@@ -134,7 +137,6 @@ end
 
     return abs(g), sign(g)
 end
-
 
 # ----------------------------------------------------------------------
 # Bond phases e^{i q⋅δ}
@@ -181,7 +183,6 @@ Implementation note: `cis(x) = cos(x) + im * sin(x) = exp(im * x)`, so
     return cis(2π * x)
 end
 
-
 # ----------------------------------------------------------------------
 # B channel
 # ----------------------------------------------------------------------
@@ -207,7 +208,7 @@ function _internal_B!(
             :σ0,
         )
 
-        # 22 block:
+        # 22 block from M22(k,p) = M11(-p,-k)^T:
         # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
         _add_spin_matrix!(
             V, 2, 2, ap, a,
@@ -219,15 +220,15 @@ function _internal_B!(
         # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σ0
         _add_spin_matrix!(
             V, 1, 1, ap, a,
-            -κ / 2 * s * conj(_bond_phase(a, δ, k)),
+            -κ * s / 2 * conj(_bond_phase(a, δ, k)),
             :σ0,
         )
 
-        # 22 block:
+        # 22 block from M22(k,p) = M11(-p,-k)^T:
         # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ σ0
         _add_spin_matrix!(
             V, 2, 2, a, ap,
-            -κ / 2 * s * _bond_phase(a, δ, p),
+            -κ * s / 2 * _bond_phase(a, δ, p),
             :σ0,
         )
     else
@@ -236,7 +237,6 @@ function _internal_B!(
 
     return V
 end
-
 
 # ----------------------------------------------------------------------
 # C channel
@@ -275,7 +275,7 @@ function _internal_C!(
         # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ σz
         _add_spin_matrix!(
             V, 1, 1, ap, a,
-            -κ / 2 * s * conj(_bond_phase(a, δ, k)),
+            -κ * s / 2 * conj(_bond_phase(a, δ, k)),
             :σz,
         )
 
@@ -283,7 +283,7 @@ function _internal_C!(
         # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ σz
         _add_spin_matrix!(
             V, 2, 2, a, ap,
-            -κ / 2 * s * _bond_phase(a, δ, p),
+            -κ * s / 2 * _bond_phase(a, δ, p),
             :σz,
         )
     else
@@ -292,7 +292,6 @@ function _internal_C!(
 
     return V
 end
-
 
 # ----------------------------------------------------------------------
 # A channel
@@ -320,13 +319,12 @@ function _internal_A!(
         )
 
         # Transposed reversed 12 block:
-        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (iσy)^T
-        #
-        # Since (iσy)^T = -iσy, this is implemented as
-        # +(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ iσy.
+        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (iσy)^T.
+        # Since (iσy)^T = -iσy, this is +(κ/2) e^{-i k⋅δ}
+        # multiplying the iσy matrix.
         _add_spin_matrix!(
             V, 1, 2, ap, a,
-            +κ / 2 * conj(_bond_phase(a, δ, k)),
+            κ / 2 * conj(_bond_phase(a, δ, k)),
             :iσy,
         )
     elseif kind === :Wbar
@@ -334,18 +332,15 @@ function _internal_A!(
         # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ iσy
         _add_spin_matrix!(
             V, 2, 1, a, ap,
-            -κ / 2 * s * _bond_phase(a, δ, p),
+            -κ * s / 2 * _bond_phase(a, δ, p),
             :iσy,
         )
 
         # Transposed reversed 21 block:
-        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (iσy)^T
-        #
-        # Since (iσy)^T = -iσy, this is implemented as
-        # +(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ iσy.
+        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (iσy)^T.
         _add_spin_matrix!(
             V, 2, 1, ap, a,
-            +κ / 2 * s * conj(_bond_phase(a, δ, k)),
+            κ * s / 2 * conj(_bond_phase(a, δ, k)),
             :iσy,
         )
     else
@@ -354,7 +349,6 @@ function _internal_A!(
 
     return V
 end
-
 
 # ----------------------------------------------------------------------
 # D channel
@@ -382,9 +376,8 @@ function _internal_D!(
         )
 
         # Transposed reversed 12 block:
-        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (σx)^T
-        #
-        # Since (σx)^T = σx, this is the same spin matrix.
+        # -(κ/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (σx)^T.
+        # Since (σx)^T = σx, the sign is unchanged.
         _add_spin_matrix!(
             V, 1, 2, ap, a,
             -κ / 2 * conj(_bond_phase(a, δ, k)),
@@ -395,17 +388,15 @@ function _internal_D!(
         # -(κ s/2) e^{i p⋅δ} P_{a,a+1} ⊗ σx
         _add_spin_matrix!(
             V, 2, 1, a, ap,
-            -κ / 2 * s * _bond_phase(a, δ, p),
+            -κ * s / 2 * _bond_phase(a, δ, p),
             :σx,
         )
 
         # Transposed reversed 21 block:
-        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (σx)^T
-        #
-        # Since (σx)^T = σx, this is the same spin matrix.
+        # -(κ s/2) e^{-i k⋅δ} P_{a+1,a} ⊗ (σx)^T.
         _add_spin_matrix!(
             V, 2, 1, ap, a,
-            -κ / 2 * s * conj(_bond_phase(a, δ, k)),
+            -κ * s / 2 * conj(_bond_phase(a, δ, k)),
             :σx,
         )
     else
@@ -414,7 +405,6 @@ function _internal_D!(
 
     return V
 end
-
 
 # ----------------------------------------------------------------------
 # Matrix-entry helper
@@ -437,12 +427,12 @@ function _add_spin_matrix!(
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 2)] -= coeff
     elseif spin_matrix === :iσy
         # iσy = [0  1
-        #       -1  0]
+        #        -1 0]
         V[nambu_index(ηrow, arow, 1), nambu_index(ηcol, acol, 2)] += coeff
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 1)] -= coeff
     elseif spin_matrix === :σx
-        # σx = [0  1
-        #      1  0]
+        # σx = [0 1
+        #       1 0]
         V[nambu_index(ηrow, arow, 1), nambu_index(ηcol, acol, 2)] += coeff
         V[nambu_index(ηrow, arow, 2), nambu_index(ηcol, acol, 1)] += coeff
     else
@@ -452,7 +442,6 @@ function _add_spin_matrix!(
     return V
 end
 
-
 # ----------------------------------------------------------------------
 # Symbol canonicalization
 # ----------------------------------------------------------------------
@@ -460,21 +449,16 @@ end
 @inline function _canonical_internal_kind(kind::Symbol)
     kind === :W && return :W
     kind === :Wbar && return :Wbar
-
     throw(ArgumentError("`kind` must be `:W` or `:Wbar`; got `$kind`."))
 end
 
-
 @inline function _canonical_internal_channel(X::Symbol)
     X in (:A, :B, :C, :D) && return X
-
     throw(ArgumentError("`X` must be one of `:A`, `:B`, `:C`, `:D`; got `$X`."))
 end
-
 
 @inline function _canonical_lambda_field(field::Symbol)
     field === :λ && return :λ
     field === :lambda && return :λ
-
     throw(ArgumentError("`field` must be `:λ` or `:lambda`; got `$field`."))
 end
