@@ -272,6 +272,7 @@ end
         include_condensation::Bool = true,
         Nflavor::Real = 2,
         force_T0_bose_factor::Bool = false,
+        κtol::Real = 1e-12,
     )
 
 Compute the Gaussian-fluctuation counter-diagram contribution to the dynamical
@@ -299,6 +300,10 @@ By default, the RPA polarization and the external-internal bubbles use
 finite-temperature Bose factors. Setting `force_T0_bose_factor = true`
 restores the legacy zero-temperature occupation factors for comparison with
 previous results.
+
+The internal-field basis is restricted to active fields. This removes exactly
+inactive channels whose bare kernel and vertices vanish, preventing artificial
+singular blocks in the RPA kernel.
 """
 function dssf_FL(
     sbs::SchwingerBosonSystem,
@@ -311,6 +316,7 @@ function dssf_FL(
     include_condensation::Bool = true,
     Nflavor::Real = 2,
     force_T0_bose_factor::Bool = false,
+    κtol::Real = 1e-12,
 )
     num_energies = length(energies)
     ret_FL = zeros(Float64, 3, num_energies)
@@ -334,14 +340,48 @@ function dssf_FL(
 
     (; L) = sbs
 
-    q_reshaped = to_reshaped_rlu(q)
+    # Keep two momenta with distinct meanings:
+    #
+    #   q_ext:
+    #       Original reciprocal-lattice coordinate. This is used in the
+    #       external spin vertex U_q^μ.
+    #
+    #   q_reshaped:
+    #       Folded/reshaped magnetic-Brillouin-zone coordinate. This is used
+    #       in Green's functions, internal vertices, and the RPA kernel.
+    #
+    # Callers often pass q as a Vector, while the external-internal bubble
+    # dispatches on Vec3. Convert once here.
+    q_ext = Vec3(q[1], q[2], q[3])
+    q_reshaped = to_reshaped_rlu(q_ext)
 
     k_grid = [
         Vec3(i / L, j / L, 0.0)
         for i in 0:L-1, j in 0:L-1, _ in 1:1
     ]
 
-    fields = internal_field_basis()
+    # Use only active internal fields.
+    #
+    # λ fields are always kept. For bond fields, activity is determined by
+    # the diagonal bare kernel Π0. Inactive C/D channels at Δ=1, α=0 would
+    # otherwise produce exact zero rows/columns and make K singular.
+    fields_all = internal_field_basis()
+    nϕ_all = length(fields_all)
+
+    Π0_all = zeros(ComplexF64, nϕ_all, nϕ_all)
+    Pi0!(Π0_all, sbs, fields_all)
+
+    active_indices = Int[]
+
+    for i in eachindex(fields_all)
+        field = fields_all[i]
+
+        if field.kind === :λ || abs(Π0_all[i, i]) > κtol
+            push!(active_indices, i)
+        end
+    end
+
+    fields = fields_all[active_indices]
     nϕ = length(fields)
 
     Π0 = zeros(ComplexF64, nϕ, nϕ)
@@ -358,6 +398,9 @@ function dssf_FL(
     for (ie, energy) in enumerate(energies)
         z = energy + im * Γ
 
+        fill!(Π, 0.0 + 0.0im)
+        fill!(K, 0.0 + 0.0im)
+
         polarization!(
             Π,
             sbs,
@@ -373,15 +416,12 @@ function dssf_FL(
         rpa_kernel!(K, Π0, Π)
 
         for μ in 1:3
-            # Column bubble:
-            #
-            #     Scol[β] = S^{1+1;μ,R}_{β}(q, ω).
             external_internal_bubble!(
                 Scol,
                 sbs,
                 fields,
                 k_grid,
-                q,
+                q_ext,
                 q_reshaped,
                 energy,
                 μ;
@@ -390,19 +430,12 @@ function dssf_FL(
                 force_T0_bose_factor = force_T0_bose_factor,
             )
 
-            # Row bubble:
-            #
-            #     Srow[α] = S^{†,1+1;μ,R}_{α}(q, ω).
-            #
-            # This is not a Hermitian conjugate and not a separate `-q`
-            # column bubble. It is the row-side Gaussian partner in the same
-            # sector.
             external_internal_bubble_row!(
                 Srow,
                 sbs,
                 fields,
                 k_grid,
-                q,
+                q_ext,
                 q_reshaped,
                 energy,
                 μ;
