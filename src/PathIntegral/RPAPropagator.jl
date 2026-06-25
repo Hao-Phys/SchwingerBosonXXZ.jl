@@ -67,23 +67,7 @@ end
 """
     internal_vertices!(V, sbs, field::InternalField, k, p)
 
-Fill `V` with the reduced **column-side** internal vertex associated with
-`field`.
-
-For `field.kind === :λ`, this dispatches to
-
-    internal_vertices!(V, :λ, field.a)
-
-For HS fields, this dispatches to
-
-    internal_vertices!(V, sbs, field.kind, field.channel, field.a, field.δ, k, p)
-
-The returned vertex is reduced: the Fourier normalization and the
-momentum-frequency Kronecker delta are not included.
-
-This is the derivative with respect to the actual Fourier field contained in
-the column sector variable. Thus `field.kind = :Wbar` in sector `q` denotes
-the derivative with respect to `Wbar(-q)`.
+Fill `V` with the reduced column-side internal vertex associated with `field`.
 """
 function internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -118,8 +102,7 @@ end
 """
     row_internal_vertices!(V, sbs, field::InternalField, k, p)
 
-Fill `V` with the reduced **row-side** internal vertex associated with
-`field`.
+Fill `V` with the reduced row-side internal vertex associated with `field`.
 
 The stored `field` label is still the column-sector label. The row partner is
 mapped according to the complex-Gaussian sector convention:
@@ -127,10 +110,6 @@ mapped according to the complex-Gaussian sector convention:
 - row label `:W` means the actual field `Wbar(q)`;
 - row label `:Wbar` means the actual field `W(-q)`;
 - row label `:λ` means the actual field `λ(-q)`.
-
-For a row vertex appearing as `V†_α(k,p)`, the arguments are chosen so that
-`k - p` is the row-side transfer. This function labels the row-side derivative
-vertex. It does not take a Hermitian conjugate.
 """
 function row_internal_vertices!(
     V::AbstractMatrix{ComplexF64},
@@ -184,14 +163,6 @@ Fill `Π0` with the bare auxiliary-field kernel in the sector basis
 
     ϕ(q) = (W(q), Wbar(-q), λ(q)),
     ϕ†(q) = (Wbar(q), W(-q), λ(-q)).
-
-With this row-column convention, the bare kernel is diagonal in the HS
-integration variables:
-
-    Π0[W,    W   ] = κ / 2,
-    Π0[Wbar, Wbar] = κ / 2.
-
-All entries involving `λ` are zero.
 """
 function Pi0!(
     Π0::AbstractMatrix{ComplexF64},
@@ -224,17 +195,17 @@ end
 
 Fill `Π` with the polarization operator at complex external frequency `z`.
 
-The row-column convention is
+With the split
 
-    K_{αβ}(q,z) = Π0_{αβ} - Π_{αβ}(q,z),
+    G = G_normal + G_condensed,
 
-where `α` is a row-sector label and `β` is a column-sector label. The column
-vertex is `V_β(k+q,k)`, while the row vertex is `V†_α(k,k+q)`; the dagger is
-only a row-side label and is not a Hermitian conjugate.
+the RPA kernel must use the complete bubble
 
-The normal-normal contribution is always included. If `aux` contains a
-condensate, this function also adds the mixed condensate-normal terms. The
-purely elastic condensate-condensate contribution is intentionally omitted.
+    Π = Π_nn + Π_cn + Π_nc + Π_cc.
+
+For `selection_kind === :finite_size_minimum`, this is only an algebraic split
+of ordinary finite-size poles. The selected poles are reinserted with weight
+one and with the same `1 / Nk` momentum normalization as the original bubble.
 """
 function polarization!(
     Π::AbstractMatrix{ComplexF64},
@@ -244,7 +215,7 @@ function polarization!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::Union{Nothing, SpectralCondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
     fill!(Π, 0.0 + 0.0im)
@@ -273,6 +244,18 @@ function polarization!(
         force_T0_bose_factor = force_T0_bose_factor,
     )
 
+    polarization_condensate_condensate!(
+        Π,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
+        Nflavor = Nflavor,
+        aux = aux,
+        force_T0_bose_factor = force_T0_bose_factor,
+    )
+
     return Π
 end
 
@@ -282,10 +265,6 @@ end
                          force_T0_bose_factor=false)
 
 Add the normal-normal polarization contribution to `Π`.
-
-This helper does not clear `Π`; it adds into the supplied matrix. The finite
-grid represents the magnetic Brillouin-zone sum with the explicit prefactor
-`1 / (2 * Nflavor * Nu)`, implemented as `1 / (2 * Nflavor * length(kgrid))`.
 """
 function polarization_normal!(
     Π::AbstractMatrix{ComplexF64},
@@ -295,7 +274,7 @@ function polarization_normal!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::Union{Nothing, SpectralCondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
@@ -328,11 +307,13 @@ function polarization_normal!(
 
                 for m in eachindex(ϵs_k)
                     iszero(weights_k[m]) && continue
+
                     Em = ϵs_k[m]
                     nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
 
                     for n in eachindex(ϵs_kq)
                         iszero(weights_kq[n]) && continue
+
                         En = ϵs_kq[n]
                         nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
 
@@ -366,19 +347,12 @@ end
         force_T0_bose_factor = false,
     )
 
-Add the mixed condensate-normal contribution to `Π`.
+Add the mixed pieces
 
-This function adds the two mixed pieces in which exactly one Green's-function
-line is the condensate contribution and the other is the normal saddle-point
-Green's function. It is a no-op unless
+    G_c(k) G_n(k + q),    G_n(k) G_c(k + q).
 
-    aux !== nothing && aux.conden_index !== nothing.
-
-The row-column convention is the same as in `polarization_normal!`: the row
-vertex is `V†_α(k,k+q)` and the column vertex is `V_β(k+q,k)`.
-
-The purely elastic condensate-condensate contribution `Π_cc` is intentionally
-omitted.
+For `selection_kind === :finite_size_minimum`, this is an exact finite-size
+pole split and therefore uses the same prefactor as the ordinary k-sum bubble.
 """
 function polarization_condensate_normal!(
     Π::AbstractMatrix{ComplexF64},
@@ -388,31 +362,41 @@ function polarization_condensate_normal!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::Union{Nothing, SpectralCondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
-    _has_condensate(aux) || return Π
+    aux === nothing && return Π
+    isempty(aux.conden_band_indices) && return Π
 
     nϕ = length(fields)
     size(Π) == (nϕ, nϕ) ||
         throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
 
-    Nu = length(kgrid)
-    Nu > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
-    qc = kgrid[aux.conden_index]
+    i = (aux.conden_index - 1) ÷ sbs.L + 1
+    j = (aux.conden_index - 1) % sbs.L + 1
+    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+
     βtemp = _inverse_temperature(sbs)
 
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    prefactor = 1 / (2 * Nflavor * Nu)
+    prefactor = if aux.selection_kind === :finite_size_minimum
+        1 / (2 * Nflavor * Nk)
+    else
+        1 / (2 * Nflavor)
+    end
 
+    # ------------------------------------------------------------------
     # Condensate on the k line, normal propagator on the k + q line.
+    # ------------------------------------------------------------------
     kc = qc
     kn = qc + q
 
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_c, Vc, weights_c = _rpa_condensed_residues(sbs, kc, aux)
     ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
 
     for (iα, α) in pairs(fields)
@@ -425,11 +409,13 @@ function polarization_condensate_normal!(
 
             for m in eachindex(ϵs_c)
                 iszero(weights_c[m]) && continue
+
                 Em = ϵs_c[m]
-                nb_m = _nB_T0(real(Em))
+                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
 
                 for n in eachindex(ϵs_n)
                     iszero(weights_n[n]) && continue
+
                     En = ϵs_n[n]
                     nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
 
@@ -451,12 +437,14 @@ function polarization_condensate_normal!(
         end
     end
 
+    # ------------------------------------------------------------------
     # Normal propagator on the k line, condensate on the k + q line.
+    # ------------------------------------------------------------------
     kn = qc - q
     kc = qc
 
     ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_c, Vc, weights_c = _rpa_condensed_residues(sbs, kc, aux)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kn, kc)
@@ -468,13 +456,15 @@ function polarization_condensate_normal!(
 
             for m in eachindex(ϵs_n)
                 iszero(weights_n[m]) && continue
+
                 Em = ϵs_n[m]
                 nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
 
                 for n in eachindex(ϵs_c)
                     iszero(weights_c[n]) && continue
+
                     En = ϵs_c[n]
-                    nb_n = _nB_T0(real(En))
+                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
 
                     occdiff = nb_n - nb_m
                     iszero(occdiff) && continue
@@ -484,6 +474,104 @@ function polarization_condensate_normal!(
                     coherence = _residue_vertex_trace(
                         Vc, weights_c, n, Vcol,
                         Vn, weights_n, m, Vrow,
+                    )
+
+                    accum += coherence * occdiff / denom
+                end
+            end
+
+            Π[iα, iβ] += prefactor * accum
+        end
+    end
+
+    return Π
+end
+
+"""
+    polarization_condensate_condensate!(
+        Π, sbs, fields, kgrid, q, z;
+        Nflavor = 2,
+        aux = nothing,
+        force_T0_bose_factor = false,
+    )
+
+Add the `G_c G_c` piece.
+
+For the finite-size gap case this is required to make the split exactly
+reconstruct the original finite-size normal bubble.
+"""
+function polarization_condensate_condensate!(
+    Π::AbstractMatrix{ComplexF64},
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q::Vec3,
+    z::Number;
+    Nflavor::Real = 2,
+    aux::Union{Nothing, SpectralCondensationAux} = nothing,
+    force_T0_bose_factor::Bool = false,
+)
+    aux === nothing && return Π
+    isempty(aux.conden_band_indices) && return Π
+
+    nϕ = length(fields)
+    size(Π) == (nϕ, nϕ) ||
+        throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
+
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    βtemp = _inverse_temperature(sbs)
+
+    i = (aux.conden_index - 1) ÷ sbs.L + 1
+    j = (aux.conden_index - 1) % sbs.L + 1
+    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+
+    kc = qc
+    kq = qc + q
+
+    _same_momentum_mod1(kq, qc) || return Π
+
+    Vrow = zeros(ComplexF64, 12, 12)
+    Vcol = zeros(ComplexF64, 12, 12)
+
+    ϵs_k, Vk, weights_k = _rpa_condensed_residues(sbs, kc, aux)
+    ϵs_kq, Vkq, weights_kq = _rpa_condensed_residues(sbs, kq, aux)
+
+    prefactor = if aux.selection_kind === :finite_size_minimum
+        1 / (2 * Nflavor * Nk)
+    else
+        Nk / (2 * Nflavor)
+    end
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kq)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kq, kc)
+
+            accum = 0.0 + 0.0im
+
+            for m in eachindex(ϵs_k)
+                iszero(weights_k[m]) && continue
+
+                Em = ϵs_k[m]
+                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+
+                for n in eachindex(ϵs_kq)
+                    iszero(weights_kq[n]) && continue
+
+                    En = ϵs_kq[n]
+                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+
+                    occdiff = nb_n - nb_m
+                    iszero(occdiff) && continue
+
+                    denom = z + Em - En
+
+                    coherence = _residue_vertex_trace(
+                        Vkq, weights_kq, n, Vcol,
+                        Vk, weights_k, m, Vrow,
                     )
 
                     accum += coherence * occdiff / denom
@@ -507,9 +595,6 @@ end
 Fill `K` with the inverse RPA propagator kernel
 
     K = Π0 - Π.
-
-Here `K[α, β]` has row index `α` and column index `β` in the sector convention
-of the current note.
 """
 function rpa_kernel!(
     K::AbstractMatrix{ComplexF64},
@@ -542,7 +627,7 @@ function rpa_kernel!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::Union{Nothing, SpectralCondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
@@ -570,7 +655,7 @@ function rpa_kernel!(
 end
 
 # ----------------------------------------------------------------------
-# Helpers
+# Helpers local to this file
 # ----------------------------------------------------------------------
 
 @inline function _inverse_temperature(sbs::SchwingerBosonSystem)
@@ -584,8 +669,6 @@ end
 Zero-temperature Bose factor for BdG pole energies.
 
 For positive poles, `nB(E) = 0`. For negative poles, `nB(E) = -1`.
-If a nonzero-weight pole is numerically at zero energy, the normal-only bubble
-is ill-defined and the condensate treatment should be used.
 """
 @inline function _nB_T0(E::Real)
     atol = 1e-12
@@ -608,9 +691,7 @@ end
 
 Finite-temperature Bose factor for a BdG pole energy `E`.
 
-For very low temperature or very large `|βE|`, the result is evaluated by a
-stable limiting expression. Negative BdG poles correctly approach `-1` as
-`T -> 0`.
+Negative BdG poles correctly approach `-1` as `T -> 0`.
 """
 @inline function _nB_BdG(E::Number, β::Real)
     Er = real(E)
@@ -638,16 +719,35 @@ end
     return force_T0_bose_factor ? _nB_T0(real(E)) : _nB_BdG(E, β)
 end
 
-function _field_index(fields::AbstractVector{InternalField}, target::InternalField)
-    for (i, field) in pairs(fields)
-        field == target && return i
+"""
+    _rpa_condensed_residues(sbs, q, aux)
+
+Condensed residues for the RPA split.
+
+For `selection_kind === :finite_size_minimum`, the selected modes are ordinary
+finite-size poles split out of the full Green function. Therefore their RPA
+residue weight must be exactly one, so that
+
+    G_full = G_normal + G_condensed
+
+holds algebraically.
+
+For other selections, this falls back to the stored condensate weights.
+"""
+function _rpa_condensed_residues(
+    sbs::SchwingerBosonSystem,
+    q,
+    aux::SpectralCondensationAux,
+)
+    ϵs, V, weights = Green_SP_condensed_residues(sbs, q, aux)
+
+    if aux.selection_kind === :finite_size_minimum
+        for l in aux.conden_band_indices
+            if !iszero(weights[l])
+                weights[l] = 1.0
+            end
+        end
     end
 
-    throw(ArgumentError("Field `$target` was not found in the internal-field basis."))
-end
-
-@inline _has_condensate(aux::Nothing) = false
-
-@inline function _has_condensate(aux::CondensationAux)
-    return aux.conden_index !== nothing
+    return ϵs, V, weights
 end

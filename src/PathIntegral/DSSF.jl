@@ -6,10 +6,7 @@
         q,
         energies,
         Γ;
-        options_μ = Optim.Options(show_trace=false, iterations=100),
-        tol = 1e-12,
-        max_iters = 1000,
-        include_condensation::Bool = true,
+        aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
         force_T0_bose_factor::Bool = false,
     )
 
@@ -19,6 +16,11 @@ path-integral Green-function trace formula.
 Returns `ret_normal, ret_condensate`, where both arrays have size
 `3 × length(energies)`.
 
+The normal-normal part uses `Green_SP_normal_residues`, so the selected
+condensed modes stored in `aux` are removed from the normal sector. The
+condensate-normal part uses `Green_SP_condensed_residues`, so the same selected
+modes and the same condensate weights are inserted into the condensate sector.
+
 By default, the normal-normal part uses finite-temperature Bose factors and
 the fluctuation-dissipation prefactor
 
@@ -26,21 +28,13 @@ the fluctuation-dissipation prefactor
 
 Setting `force_T0_bose_factor = true` restores the legacy zero-temperature
 negative-pole to positive-pole contribution.
-
-This version matches the canonical finite-size condensate convention
-`ik == aux.conden_index`. The mixed condensate contribution is added from
-
-    G_condensed(k = qc) × G_normal(k + q = qc + q).
 """
 function dssf_SP(
     sbs::SchwingerBosonSystem,
     q,
     energies,
     Γ;
-    options_μ = Optim.Options(show_trace=false, iterations=100),
-    tol = 1e-12,
-    max_iters = 1000,
-    include_condensation::Bool = true,
+    aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
     force_T0_bose_factor::Bool = false,
 )
     num_energies = length(energies)
@@ -48,61 +42,36 @@ function dssf_SP(
     ret_normal = zeros(Float64, 3, num_energies)
     ret_condensate = zeros(Float64, 3, num_energies)
 
-    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
-
-    if include_condensation
-        μ0 = copy(real(sbs.mean_fields[13:15]))
-
-        optimize_μ0!(
-            sbs,
-            μ0,
-            aux;
-            options = options_μ,
-            tol = tol,
-            max_iters = max_iters,
-        )
-
-        condensation_results!(sbs, aux)
-    end
-
     (; L) = sbs
 
     Ns = 3L^2
     βtemp = _inverse_temperature(sbs)
 
-    q_reshaped = to_reshaped_rlu(q)
+    q_ext = Vec3(q[1], q[2], q[3])
+    q_reshaped = to_reshaped_rlu(q_ext)
 
-    Uq = [external_vertex(μ, q) for μ in 1:3]
-    Umq = [external_vertex(μ, -q) for μ in 1:3]
+    Uq = [external_vertex(μ, q_ext) for μ in 1:3]
+    Umq = [external_vertex(μ, -q_ext) for μ in 1:3]
 
-    k_grid = [
-        Vec3(i / L, j / L, 0.0)
-        for i in 0:L-1, j in 0:L-1, _ in 1:1
-    ]
+    k_grid = Vec3[]
 
-    has_condensate = include_condensation && aux.conden_index !== nothing
+    for i in 1:L, j in 1:L
+        push!(k_grid, Vec3([(i - 1) / L, (j - 1) / L, 0.0]))
+    end
 
     # ------------------------------------------------------------------
     # Normal-normal contribution.
+    #
+    # The normal residue provider removes the selected condensed poles at
+    # aux.conden_index. This keeps the normal sector and condensate sector
+    # disjoint by construction.
     # ------------------------------------------------------------------
-    for (ik, k) in enumerate(k_grid)
+    for k in k_grid
         kq = k + q_reshaped
 
         if force_T0_bose_factor
-            # Legacy behavior. Keep the old residue convention as closely as
-            # possible for comparison with previous results.
-            ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, nothing)
-            ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, nothing)
-
-            if has_condensate && ik == aux.conden_index
-                for a in 1:6
-                    lneg = 6 + a
-
-                    if isapprox(abs(ϵs_k[lneg]), sbs.condensation_ϵ; atol = 1e-8)
-                        weights_k[lneg] = 0.0
-                    end
-                end
-            end
+            ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+            ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
 
             for a in 1:6
                 lneg = 6 + a
@@ -132,13 +101,8 @@ function dssf_SP(
                 end
             end
         else
-            # Finite-temperature spectral representation. If a condensate
-            # exists, pass `aux` into the normal residue provider so that
-            # pinned condensate poles are removed from the normal-normal part.
-            aux_normal = has_condensate ? aux : nothing
-
-            ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux_normal)
-            ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux_normal)
+            ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+            ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
 
             for m in eachindex(ϵs_k)
                 iszero(weights_k[m]) && continue
@@ -191,67 +155,129 @@ function dssf_SP(
     # ------------------------------------------------------------------
     # Condensate-normal contribution.
     #
-    # This matches the canonical convention ik == aux.conden_index.
+    # Green-function split:
     #
-    # The condensed canonical line is the V2 / -k line, which corresponds to
-    # the negative pole of G(k). Therefore we set
+    #     G G = G_n G_n
+    #         + G_c G_n
+    #         + G_n G_c
+    #         + G_c G_c.
     #
-    #     k     = qc,
-    #     k + q = qc + q.
+    # The normal-normal part was already computed above using
+    # Green_SP_normal_residues on both lines. Here we add both mixed
+    # condensate-normal orientations and omit the elastic G_c G_c piece.
     #
-    # Green_SP_condensed_residues already assigns the pinned poles weight
-    # aux.ξ + 1. The extra L^2 below is the collapsed finite-size momentum
-    # sum.
+    # The extra L^2 is the collapsed finite-size momentum sum.
     # ------------------------------------------------------------------
-    if has_condensate
-        qc = k_grid[aux.conden_index]
+    i = (aux.conden_index - 1) ÷ L + 1
+    j = (aux.conden_index - 1) % L + 1
 
-        k = qc
-        kq = qc + q_reshaped
+    qc = Vec3([(i - 1) / L, (j - 1) / L, 0.0])
 
-        ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, k, aux)
+    # --------------------------------------------------------------
+    # Orientation 1:
+    #
+    #     G_n(k + q) G_c(k),
+    #
+    # with k = qc. This is the old V2 / -k condensed-line contribution.
+    # The condensed pole is a negative BdG pole on the k line.
+    # --------------------------------------------------------------
+    k = qc
+    kq = qc + q_reshaped
 
-        normal_aux = force_T0_bose_factor ? nothing : aux
-        ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kq, normal_aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, k, aux)
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kq, aux)
 
-        for a in 1:6
-            lcond_neg = 6 + a
-            iszero(weights_c[lcond_neg]) && continue
+    for a in 1:6
+        lcond_neg = 6 + a
+        iszero(weights_c[lcond_neg]) && continue
 
-            for b in 1:6
-                lpos = b
-                iszero(weights_n[lpos]) && continue
+        for b in 1:6
+            lpos = b
+            iszero(weights_n[lpos]) && continue
 
-                # Condensed line has zero physical energy.
-                ΔE = ϵs_n[lpos]
+            ΔE = ϵs_n[lpos]
 
-                thermal_factor = if force_T0_bose_factor
+            thermal_factor = if force_T0_bose_factor
+                1.0
+            else
+                x = βtemp * real(ΔE)
+
+                if abs(x) < 1e-10
+                    continue
+                elseif x > 700
                     1.0
+                elseif x < -700
+                    0.0
                 else
-                    x = βtemp * real(ΔE)
-
-                    if abs(x) < 1e-10
-                        continue
-                    elseif x > 700
-                        1.0
-                    elseif x < -700
-                        0.0
-                    else
-                        1 / (1 - exp(-x))
-                    end
+                    1 / (1 - exp(-x))
                 end
+            end
 
-                for μ in 1:3
-                    trace_weight = _residue_vertex_trace(
-                        Vn, weights_n, lpos, Umq[μ],
-                        Vc, weights_c, lcond_neg, Uq[μ],
-                    )
+            for μ in 1:3
+                trace_weight = _residue_vertex_trace(
+                    Vn, weights_n, lpos, Umq[μ],
+                    Vc, weights_c, lcond_neg, Uq[μ],
+                )
 
-                    weight = thermal_factor * (-L^2 * real(trace_weight) / (8Ns))
+                weight = thermal_factor * (-L^2 * real(trace_weight) / (8Ns))
 
-                    for (ie, energy) in enumerate(energies)
-                        ret_condensate[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
-                    end
+                for (ie, energy) in enumerate(energies)
+                    ret_condensate[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
+                end
+            end
+        end
+    end
+
+    # --------------------------------------------------------------
+    # Orientation 2:
+    #
+    #     G_c(k + q) G_n(k),
+    #
+    # with k + q = qc, i.e. k = qc - q. The condensed pole is now a
+    # positive BdG pole on the k + q line.
+    # --------------------------------------------------------------
+    k = qc - q_reshaped
+    kq = qc
+
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, k, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kq, aux)
+
+    for a in 1:6
+        lneg = 6 + a
+        iszero(weights_n[lneg]) && continue
+
+        for b in 1:6
+            lcond_pos = b
+            iszero(weights_c[lcond_pos]) && continue
+
+            ΔE = -ϵs_n[lneg]
+
+            thermal_factor = if force_T0_bose_factor
+                1.0
+            else
+                x = βtemp * real(ΔE)
+
+                if abs(x) < 1e-10
+                    continue
+                elseif x > 700
+                    1.0
+                elseif x < -700
+                    0.0
+                else
+                    1 / (1 - exp(-x))
+                end
+            end
+
+            for μ in 1:3
+                trace_weight = _residue_vertex_trace(
+                    Vc, weights_c, lcond_pos, Umq[μ],
+                    Vn, weights_n, lneg, Uq[μ],
+                )
+
+                weight = thermal_factor * (-L^2 * real(trace_weight) / (8Ns))
+
+                for (ie, energy) in enumerate(energies)
+                    ret_condensate[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
                 end
             end
         end
@@ -266,10 +292,7 @@ end
         q,
         energies,
         Γ;
-        options_μ = Optim.Options(show_trace=false, iterations=100),
-        tol = 1e-12,
-        max_iters = 1000,
-        include_condensation::Bool = true,
+        aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
         Nflavor::Real = 2,
         force_T0_bose_factor::Bool = false,
         κtol::Real = 1e-12,
@@ -294,12 +317,19 @@ The first external bubble is a column bubble, while the second is the row-side
 bubble in the same external sector. The row-side dagger labels the Gaussian
 row partner and does not denote Hermitian conjugation.
 
-The returned array has size `3 × length(energies)`.
+Returns `ret_FL_normal, ret_FL_condensate`, where both arrays have size
+`3 × length(energies)`.
 
-By default, the RPA polarization and the external-internal bubbles use
-finite-temperature Bose factors. Setting `force_T0_bose_factor = true`
-restores the legacy zero-temperature occupation factors for comparison with
-previous results.
+The RPA propagator is always built from the full polarization, including the
+normal-normal and mixed condensate-normal pieces. The returned split is made
+only at the level of the external-internal bubbles:
+
+    ret_FL_normal:
+        uses the normal parts of both external-internal bubbles.
+
+    ret_FL_condensate:
+        is the difference between the full external-bubble result and the
+        normal external-bubble result.
 
 The internal-field basis is restricted to active fields. This removes exactly
 inactive channels whose bare kernel and vertices vanish, preventing artificial
@@ -310,61 +340,27 @@ function dssf_FL(
     q,
     energies,
     Γ;
-    options_μ = Optim.Options(show_trace=false, iterations=100),
-    tol = 1e-12,
-    max_iters = 1000,
-    include_condensation::Bool = true,
+    aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
     Nflavor::Real = 2,
     force_T0_bose_factor::Bool = false,
     κtol::Real = 1e-12,
 )
     num_energies = length(energies)
-    ret_FL = zeros(Float64, 3, num_energies)
 
-    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
-
-    if include_condensation
-        μ0 = copy(real(sbs.mean_fields[13:15]))
-
-        optimize_μ0!(
-            sbs,
-            μ0,
-            aux;
-            options = options_μ,
-            tol = tol,
-            max_iters = max_iters,
-        )
-
-        condensation_results!(sbs, aux)
-    end
+    ret_FL_normal = zeros(Float64, 3, num_energies)
+    ret_FL_condensate = zeros(Float64, 3, num_energies)
 
     (; L) = sbs
 
-    # Keep two momenta with distinct meanings:
-    #
-    #   q_ext:
-    #       Original reciprocal-lattice coordinate. This is used in the
-    #       external spin vertex U_q^μ.
-    #
-    #   q_reshaped:
-    #       Folded/reshaped magnetic-Brillouin-zone coordinate. This is used
-    #       in Green's functions, internal vertices, and the RPA kernel.
-    #
-    # Callers often pass q as a Vector, while the external-internal bubble
-    # dispatches on Vec3. Convert once here.
     q_ext = Vec3(q[1], q[2], q[3])
     q_reshaped = to_reshaped_rlu(q_ext)
 
-    k_grid = [
-        Vec3(i / L, j / L, 0.0)
-        for i in 0:L-1, j in 0:L-1, _ in 1:1
-    ]
+    k_grid = Vec3[]
 
-    # Use only active internal fields.
-    #
-    # λ fields are always kept. For bond fields, activity is determined by
-    # the diagonal bare kernel Π0. Inactive C/D channels at Δ=1, α=0 would
-    # otherwise produce exact zero rows/columns and make K singular.
+    for i in 1:L, j in 1:L
+        push!(k_grid, Vec3([(i - 1) / L, (j - 1) / L, 0.0]))
+    end
+
     fields_all = internal_field_basis()
     nϕ_all = length(fields_all)
 
@@ -388,12 +384,13 @@ function dssf_FL(
     Π = zeros(ComplexF64, nϕ, nϕ)
     K = zeros(ComplexF64, nϕ, nϕ)
 
-    Scol = zeros(ComplexF64, nϕ)
-    Srow = zeros(ComplexF64, nϕ)
+    Scol_normal = zeros(ComplexF64, nϕ)
+    Srow_normal = zeros(ComplexF64, nϕ)
+
+    Scol_full = zeros(ComplexF64, nϕ)
+    Srow_full = zeros(ComplexF64, nϕ)
 
     Pi0!(Π0, sbs, fields)
-
-    aux_normal = include_condensation && aux.conden_index !== nothing ? aux : nothing
 
     for (ie, energy) in enumerate(energies)
         z = energy + im * Γ
@@ -409,7 +406,7 @@ function dssf_FL(
             q_reshaped,
             z;
             Nflavor = Nflavor,
-            aux = aux_normal,
+            aux = aux,
             force_T0_bose_factor = force_T0_bose_factor,
         )
 
@@ -417,7 +414,7 @@ function dssf_FL(
 
         for μ in 1:3
             external_internal_bubble!(
-                Scol,
+                Scol_normal,
                 sbs,
                 fields,
                 k_grid,
@@ -426,12 +423,13 @@ function dssf_FL(
                 energy,
                 μ;
                 η = Γ,
-                aux = aux_normal,
+                aux = aux,
                 force_T0_bose_factor = force_T0_bose_factor,
+                include_condensate = false,
             )
 
             external_internal_bubble_row!(
-                Srow,
+                Srow_normal,
                 sbs,
                 fields,
                 k_grid,
@@ -440,19 +438,52 @@ function dssf_FL(
                 energy,
                 μ;
                 η = Γ,
-                aux = aux_normal,
+                aux = aux,
                 force_T0_bose_factor = force_T0_bose_factor,
+                include_condensate = false,
             )
 
-            # χ_FL = (1/N) Scol^T D Srow, with D = K^{-1}.
-            #
-            # Use transpose, not adjoint, because this is an index contraction
-            # over auxiliary-field labels, not a Hermitian inner product.
-            χ_FL = (1 / Nflavor) * (transpose(Scol) * (K \ Srow))
+            external_internal_bubble!(
+                Scol_full,
+                sbs,
+                fields,
+                k_grid,
+                q_ext,
+                q_reshaped,
+                energy,
+                μ;
+                η = Γ,
+                aux = aux,
+                force_T0_bose_factor = force_T0_bose_factor,
+                include_condensate = true,
+            )
 
-            ret_FL[μ, ie] = imag(χ_FL) / π
+            external_internal_bubble_row!(
+                Srow_full,
+                sbs,
+                fields,
+                k_grid,
+                q_ext,
+                q_reshaped,
+                energy,
+                μ;
+                η = Γ,
+                aux = aux,
+                force_T0_bose_factor = force_T0_bose_factor,
+                include_condensate = true,
+            )
+
+            χ_FL_normal =
+                (1 / Nflavor) * (transpose(Scol_normal) * (K \ Srow_normal))
+
+            χ_FL_full =
+                (1 / Nflavor) * (transpose(Scol_full) * (K \ Srow_full))
+
+            ret_FL_normal[μ, ie] = imag(χ_FL_normal) / π
+            ret_FL_condensate[μ, ie] =
+                imag(χ_FL_full - χ_FL_normal) / π
         end
     end
 
-    return ret_FL
+    return ret_FL_normal, ret_FL_condensate
 end

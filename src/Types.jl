@@ -57,6 +57,74 @@ mutable struct CondensationAux
     num_conden::Int
 end
 
+"""
+    SpectralCondensationAux
+
+Auxiliary container for the DSSF-level spectral condensation convention.
+
+This object is used only for the spectral split in DSSF calculations. It does
+not store the canonical soft-min shifts. The selected condensed modes are
+specified directly by `conden_index` and `conden_band_indices`.
+
+The field `condensate_weights` stores the path-integral condensate occupation
+weights `nc_i` for BdG pole indices. For pinned modes, these weights are
+`ξ_i + 1`. For finite-size-gap modes, they are computed from the regular
+finite-size BdG occupation/coefficient, not from the soft-min `ξ_i`.
+"""
+struct SpectralCondensationAux
+    conden_index::Int
+    num_conden::Int
+
+    selection_kind::Symbol
+    conden_band_indices::Vector{Int}
+    condensate_weights::Vector{Float64}
+    min_gap::Float64
+end
+
+function SpectralCondensationAux(;
+    conden_index::Int,
+    num_conden::Int,
+    selection_kind::Symbol,
+    conden_band_indices::Vector{Int},
+    condensate_weights::Vector{Float64},
+    min_gap::Float64,
+)
+    if !(selection_kind in (:pinned, :finite_size_minimum))
+        throw(ArgumentError(
+            "selection_kind must be either :pinned or :finite_size_minimum.",
+        ))
+    end
+
+    if !(1 <= conden_index)
+        throw(ArgumentError("conden_index must be a positive integer."))
+    end
+
+    if num_conden <= 0
+        throw(ArgumentError("num_conden must be positive."))
+    end
+
+    if isempty(conden_band_indices)
+        throw(ArgumentError("conden_band_indices cannot be empty."))
+    end
+
+    if any(l -> !(1 <= l <= 12), conden_band_indices)
+        throw(ArgumentError("conden_band_indices must contain BdG pole indices between 1 and 12."))
+    end
+
+    if length(condensate_weights) != 12
+        throw(ArgumentError("condensate_weights must have length 12."))
+    end
+
+    return SpectralCondensationAux(
+        conden_index,
+        num_conden,
+        selection_kind,
+        copy(conden_band_indices),
+        copy(condensate_weights),
+        min_gap,
+    )
+end
+
 function set_mean_fields!(sbs::SchwingerBosonSystem, mean_fields::Vector{ComplexF64})
     if length(mean_fields) ≠ 15
         throw(ArgumentError("Mean fields vector must have length 15."))
@@ -119,3 +187,19 @@ function set_classical_mean_fields!(sbs::SchwingerBosonSystem, μ0s, θA, θB, �
 
     set_mean_fields!(sbs, [A_AB, A_BC, A_CA, B_AB, B_BC, B_CA, C_AB, C_BC, C_CA, D_AB, D_BC, D_CA, μ0s...])
 end
+
+function easy_axis_angles(Δ)
+    θ_ref = acos(Δ / (1 + Δ))
+
+    θA = π - θ_ref
+    θB = 0.0
+    θC = π - θ_ref
+
+    ϕA = π
+    ϕB = 0.0
+    ϕC = 0.0
+
+    return θA, θB, θC, ϕA, ϕB, ϕC
+end
+
+@inline easy_plane_angles() = (π/2, π/2, π/2, 7π/6, π/2, -π/6)

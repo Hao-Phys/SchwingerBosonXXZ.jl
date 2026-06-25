@@ -1,26 +1,41 @@
 # src/PathIntegral/SaddlePointGreensFunction.jl
+@inline function _same_momentum_mod1(
+    q::Vec3,
+    p::Vec3;
+    atol::Float64 = 1e-8,
+)
+    return all(
+        a -> abs(mod(q[a] - p[a] + 0.5, 1.0) - 0.5) <= atol,
+        1:2,
+    )
+end
+
 """
-    Green_SP_normal_residues(sbs, q, aux=nothing)
+    Green_SP_normal_residues(sbs, q, aux)
 
 Return the spectral data for the normal part of the saddle-point Green's
 function.
 
 The returned objects are `ϵs, V, weights` such that
 
-    G_SP_normal(q, z)
-      = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+    G_SP_normal(q, z) =
+        sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 Here `q` must already be in the reshaped reciprocal-lattice coordinate used by
 `dynamical_matrix!`.
 
-If condensation data is available, the pinned ±ϵ modes are removed from the
-normal sector by setting their weights to zero.
+The selected condensed modes stored in `aux.conden_band_indices` are removed
+from the normal sector at the condensed momentum `aux.conden_index`.
 """
 function Green_SP_normal_residues(
     sbs::SchwingerBosonSystem,
     q::Vec3,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::SpectralCondensationAux,
 )
+    if isempty(aux.conden_band_indices)
+        error("SpectralCondensationAux has no selected condensed sector.")
+    end
+
     H = zeros(ComplexF64, 12, 12)
     V = similar(H)
 
@@ -34,41 +49,43 @@ function Green_SP_normal_residues(
 
     weights = ones(Float64, length(ϵs))
 
-    if aux !== nothing && aux.conden_index !== nothing
-        for l in eachindex(ϵs)
-            if isapprox(abs(ϵs[l]), sbs.condensation_ϵ; atol = 1e-8)
-                weights[l] = 0.0
-            end
+    i = (aux.conden_index - 1) ÷ sbs.L + 1
+    j = (aux.conden_index - 1) % sbs.L + 1
+    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+
+    if _same_momentum_mod1(q, qc)
+        for l in aux.conden_band_indices
+            weights[l] = 0.0
         end
     end
 
     return ϵs, V, weights
 end
 
-
 """
-    Green_SP_condensed_residues(sbs, q, aux=nothing)
+    Green_SP_condensed_residues(sbs, q, aux)
 
 Return the spectral data for the condensate part of the saddle-point Green's
 function.
 
 The returned objects are `ϵs, V, weights` such that
 
-    G_SP_condensed(q, z)
-      = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+    G_SP_condensed(q, z) =
+        sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
-The condensate contribution has support only in the condensate momentum sector
-encoded by `aux.conden_index`.
-
-In the canonical soft-minimum treatment, ξ is only the enhanced occupation of
-the pinned condensate mode. Since `Green_SP_normal_residues` removes the pinned
-±ϵ modes entirely, the condensate residue weight used here is `ξ + 1`.
+The condensate contribution has support only at `aux.conden_index`. The
+condensed modes are identified by `aux.conden_band_indices`, and their weights
+are read from `aux.condensate_weights`.
 """
 function Green_SP_condensed_residues(
     sbs::SchwingerBosonSystem,
     q::Vec3,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::SpectralCondensationAux,
 )
+    if isempty(aux.conden_band_indices)
+        error("SpectralCondensationAux has no selected condensed sector.")
+    end
+
     H = zeros(ComplexF64, 12, 12)
     V = similar(H)
 
@@ -82,22 +99,18 @@ function Green_SP_condensed_residues(
 
     weights = zeros(Float64, length(ϵs))
 
-    if aux === nothing || aux.conden_index === nothing
-        return ϵs, V, weights
-    end
+    i = (aux.conden_index - 1) ÷ sbs.L + 1
+    j = (aux.conden_index - 1) % sbs.L + 1
+    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
 
-    ξtot = aux.ξ + 1
-    ϵ = sbs.condensation_ϵ
-
-    for l in eachindex(ϵs)
-        if isapprox(abs(ϵs[l]), ϵ; atol = 1e-8)
-            weights[l] = ξtot
+    if _same_momentum_mod1(q, qc)
+        for l in aux.conden_band_indices
+            weights[l] = aux.condensate_weights[l]
         end
     end
 
     return ϵs, V, weights
 end
-
 
 """
     Green_SP_from_residues(ϵs, V, weights, z)
@@ -107,8 +120,8 @@ Construct the Green's-function matrix from spectral pole data,
     G(q, z) = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 The factor `Ĩ[l,l]` is the scalar metric sign appearing in the residue
-`C_l = s_l v_l v_l†`. With the BdG ordering used here, `Ĩ[l,l]` is +1 for the
-six positive-energy modes and -1 for the six negative-energy modes.
+`C_l = s_l v_l v_l†`. With the BdG ordering used here, `Ĩ[l,l]` is +1 for
+the six positive-energy modes and -1 for the six negative-energy modes.
 """
 function Green_SP_from_residues(
     ϵs::AbstractVector,
@@ -132,9 +145,8 @@ function Green_SP_from_residues(
     return G
 end
 
-
 """
-    Green_SP_normal(sbs, q, z, aux=nothing)
+    Green_SP_normal(sbs, q, z, aux)
 
 Return the normal part of the saddle-point Green's function as a matrix.
 """
@@ -142,15 +154,15 @@ function Green_SP_normal(
     sbs::SchwingerBosonSystem,
     q::Vec3,
     z::Number,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::SpectralCondensationAux,
 )
     ϵs, V, weights = Green_SP_normal_residues(sbs, q, aux)
+
     return Green_SP_from_residues(ϵs, V, weights, z)
 end
 
-
 """
-    Green_SP_condensed(sbs, q, z, aux=nothing)
+    Green_SP_condensed(sbs, q, z, aux)
 
 Return the condensate part of the saddle-point Green's function as a matrix.
 """
@@ -158,12 +170,12 @@ function Green_SP_condensed(
     sbs::SchwingerBosonSystem,
     q::Vec3,
     z::Number,
-    aux::Union{Nothing, CondensationAux} = nothing,
+    aux::SpectralCondensationAux,
 )
     ϵs, V, weights = Green_SP_condensed_residues(sbs, q, aux)
+
     return Green_SP_from_residues(ϵs, V, weights, z)
 end
-
 
 """
     _residue_matrix_from_residues(V, weights)
@@ -172,10 +184,8 @@ Construct the equal-time residue matrix
 
     C = sum_l weights[l] * Ĩ[l,l] * v_l v_l†
 
-from residue data.
-
-This is the matrix version of the same residue convention used by
-`Green_SP_from_residues`.
+from residue data. This is the matrix version of the same residue convention
+used by `Green_SP_from_residues`.
 """
 function _residue_matrix_from_residues(
     V::AbstractMatrix,
@@ -197,7 +207,6 @@ function _residue_matrix_from_residues(
     return C
 end
 
-
 """
     _condensed_residue_matrix(sbs, qc, aux)
 
@@ -207,21 +216,17 @@ Construct the static condensate residue matrix from
 function _condensed_residue_matrix(
     sbs::SchwingerBosonSystem,
     qc::Vec3,
-    aux::CondensationAux,
+    aux::SpectralCondensationAux,
 )
     _, Vc, weights_c = Green_SP_condensed_residues(sbs, qc, aux)
+
     return _residue_matrix_from_residues(Vc, weights_c)
 end
-
 
 """
     _residue_vertex_trace(Vq, wq, n, A, Vk, wk, m, B)
 
-Compute
-
-    tr[C_{q,n} A C_{k,m} B]
-
-using the rank-one residue form
+Compute `tr[C_{q,n} A C_{k,m} B]` using the rank-one residue form
 
     C_l = weights[l] * Ĩ[l,l] * v_l v_l†.
 

@@ -8,6 +8,7 @@ using HCubature
 
 include("Types.jl")
 export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!, set_classical_mean_fields!
+export SpectralCondensationAux, easy_axis_angles, easy_plane_angles
 
 include("CanonicalMeanField/FiniteSizeTools.jl")
 export q_space_path_sbs
@@ -26,6 +27,9 @@ export expectation_values
 
 include("CanonicalMeanField/Optimization.jl")
 export optimize_mean_fields!, optimize_μ0!
+
+include("SpectralCondensation.jl")
+export spectral_condensation_aux
 
 # For legacy code that we want to keep for reference but not export.
 include("CanonicalMeanField/Legacy.jl")
