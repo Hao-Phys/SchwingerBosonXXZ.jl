@@ -60,16 +60,32 @@ end
 """
     SpectralCondensationAux
 
-Auxiliary container for the DSSF-level spectral condensation convention.
+Auxiliary container for splitting the saddle-point Green function into normal
+and selected soft-mode sectors.
 
-This object is used only for the spectral split in DSSF calculations. It does
-not store the canonical soft-min shifts. The selected condensed modes are
-specified directly by `conden_index` and `conden_band_indices`.
+The selected soft sector is specified by `conden_index` and
+`conden_band_indices`. The field `condensate_weights` stores the total pole
+multipliers used by `Green_SP_condensed_residues`.
 
-The field `condensate_weights` stores the path-integral condensate occupation
-weights `nc_i` for BdG pole indices. For pinned modes, these weights are
-`ξ_i + 1`. For finite-size-gap modes, they are computed from the regular
-finite-size BdG occupation/coefficient, not from the soft-min `ξ_i`.
+Important convention:
+
+`condensate_weights` are Green-function split weights, not the extra
+single-particle-density-matrix soft-min correction.
+
+For `selection_kind === :finite_size_minimum`, the selected mode is an ordinary
+finite-size BdG pole split out from the normal sector and reinserted in the
+condensed sector. Its total pole multiplier is therefore exactly `1`.
+
+For `selection_kind === :pinned`, the ordinary selected pole is already present
+with unit weight in the saddle-point density matrix, while the soft-min
+treatment adds an extra occupation `ξ`. Since the split Green function removes
+the selected pole from the normal sector, the condensed sector must carry the
+total pole multiplier `1 + ξ`.
+
+Thus:
+
+    finite_size_minimum: condensate_weights[band] = 1
+    pinned:              condensate_weights[band] = 1 + ξ
 """
 struct SpectralCondensationAux
     conden_index::Int

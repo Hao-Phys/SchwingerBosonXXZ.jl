@@ -1,4 +1,5 @@
 # src/PathIntegral/SaddlePointGreensFunction.jl
+
 @inline function _same_momentum_mod1(
     q::Vec3,
     p::Vec3;
@@ -10,6 +11,16 @@
     )
 end
 
+@inline function _spectral_condensation_momentum(
+    aux::SpectralCondensationAux,
+    L::Int,
+)
+    i = (aux.conden_index - 1) ÷ L + 1
+    j = (aux.conden_index - 1) % L + 1
+
+    return Vec3([(i - 1) / L, (j - 1) / L, 0.0])
+end
+
 """
     Green_SP_normal_residues(sbs, q, aux)
 
@@ -18,14 +29,25 @@ function.
 
 The returned objects are `ϵs, V, weights` such that
 
-    G_SP_normal(q, z) =
-        sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+    G_SP_normal(q, z)
+        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 Here `q` must already be in the reshaped reciprocal-lattice coordinate used by
 `dynamical_matrix!`.
 
-The selected condensed modes stored in `aux.conden_band_indices` are removed
-from the normal sector at the condensed momentum `aux.conden_index`.
+The selected soft-mode sector stored in `aux.conden_band_indices` is removed
+from the normal sector at the selected momentum `aux.conden_index`.
+
+This removal is purely a Green-function split convention:
+
+    G_SP = G_SP_normal + G_SP_condensed.
+
+For `selection_kind === :finite_size_minimum`, the removed pole is an ordinary
+finite-size BdG pole and is reinserted in `Green_SP_condensed_residues` with
+total weight `1`.
+
+For `selection_kind === :pinned`, the removed pole is reinserted with the total
+soft-min Green-function weight stored in `aux.condensate_weights`.
 """
 function Green_SP_normal_residues(
     sbs::SchwingerBosonSystem,
@@ -49,9 +71,7 @@ function Green_SP_normal_residues(
 
     weights = ones(Float64, length(ϵs))
 
-    i = (aux.conden_index - 1) ÷ sbs.L + 1
-    j = (aux.conden_index - 1) % sbs.L + 1
-    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+    qc = _spectral_condensation_momentum(aux, sbs.L)
 
     if _same_momentum_mod1(q, qc)
         for l in aux.conden_band_indices
@@ -65,17 +85,28 @@ end
 """
     Green_SP_condensed_residues(sbs, q, aux)
 
-Return the spectral data for the condensate part of the saddle-point Green's
-function.
+Return the spectral data for the selected soft-mode part of the saddle-point
+Green's function.
 
 The returned objects are `ϵs, V, weights` such that
 
-    G_SP_condensed(q, z) =
-        sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+    G_SP_condensed(q, z)
+        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
-The condensate contribution has support only at `aux.conden_index`. The
-condensed modes are identified by `aux.conden_band_indices`, and their weights
-are read from `aux.condensate_weights`.
+This contribution has support only at the selected momentum stored in
+`aux.conden_index`. The selected bands are `aux.conden_band_indices`.
+
+Important convention:
+
+`aux.condensate_weights[l]` is the total pole multiplier in the split
+Green function. It is not merely the extra soft-min density-matrix correction.
+
+Therefore the intended semantics are:
+
+    finite_size_minimum: selected pole weight = 1
+    pinned:              selected pole weight = 1 + ξ
+
+where `ξ` is the extra soft-min occupation beyond the ordinary BdG pole.
 """
 function Green_SP_condensed_residues(
     sbs::SchwingerBosonSystem,
@@ -99,9 +130,7 @@ function Green_SP_condensed_residues(
 
     weights = zeros(Float64, length(ϵs))
 
-    i = (aux.conden_index - 1) ÷ sbs.L + 1
-    j = (aux.conden_index - 1) % sbs.L + 1
-    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+    qc = _spectral_condensation_momentum(aux, sbs.L)
 
     if _same_momentum_mod1(q, qc)
         for l in aux.conden_band_indices
@@ -117,11 +146,15 @@ end
 
 Construct the Green's-function matrix from spectral pole data,
 
-    G(q, z) = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+    G(q, z)
+        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
 
 The factor `Ĩ[l,l]` is the scalar metric sign appearing in the residue
-`C_l = s_l v_l v_l†`. With the BdG ordering used here, `Ĩ[l,l]` is +1 for
-the six positive-energy modes and -1 for the six negative-energy modes.
+
+    C_l = s_l v_l v_l†.
+
+With the BdG ordering used here, `Ĩ[l,l]` is +1 for the six positive-energy
+modes and -1 for the six negative-energy modes.
 """
 function Green_SP_from_residues(
     ϵs::AbstractVector,
@@ -164,7 +197,8 @@ end
 """
     Green_SP_condensed(sbs, q, z, aux)
 
-Return the condensate part of the saddle-point Green's function as a matrix.
+Return the selected soft-mode part of the saddle-point Green's function as a
+matrix.
 """
 function Green_SP_condensed(
     sbs::SchwingerBosonSystem,
@@ -210,7 +244,7 @@ end
 """
     _condensed_residue_matrix(sbs, qc, aux)
 
-Construct the static condensate residue matrix from
+Construct the static selected soft-mode residue matrix from
 `Green_SP_condensed_residues`.
 """
 function _condensed_residue_matrix(
@@ -226,7 +260,11 @@ end
 """
     _residue_vertex_trace(Vq, wq, n, A, Vk, wk, m, B)
 
-Compute `tr[C_{q,n} A C_{k,m} B]` using the rank-one residue form
+Compute
+
+    tr[C_{q,n} A C_{k,m} B]
+
+using the rank-one residue form
 
     C_l = weights[l] * Ĩ[l,l] * v_l v_l†.
 

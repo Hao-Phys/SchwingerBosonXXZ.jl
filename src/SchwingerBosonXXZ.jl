@@ -37,6 +37,8 @@ include("CanonicalMeanField/Legacy.jl")
 include("CanonicalMeanField/SelfConsistentEqns.jl")
 export solve_self_consistent_mean_fields_condensed!
 
+include("PoleOccupationFactors.jl")
+
 include("PathIntegral/SaddlePointGreensFunction.jl")
 include("PathIntegral/ExternalVertices.jl")
 

@@ -384,13 +384,22 @@ end
         force_T0_bose_factor = false,
     )
 
-Add the mixed condensate-normal pieces to the column external-internal bubble.
+Add the mixed selected-normal pieces to the column external-internal bubble.
 
-The elastic condensate-condensate contribution is omitted.
+The elastic selected-selected contribution is omitted.
 
-The finite-size momentum sum collapses onto the condensed momentum. Therefore
-the mixed contribution carries an extra factor `Nu` relative to the explicit
-normal-normal momentum sum.
+The branch-dependent collapsed momentum-sum factor is
+
+    finite_size_minimum: 1
+    pinned:              L^2
+
+implemented through `_condensate_sum_factor(aux, L)`. Therefore the prefactor is
+
+    -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu)).
+
+For `:finite_size_minimum`, the selected pole is only reassigned from the
+normal sector to the selected sector. For `:pinned`, the selected line carries
+the macroscopic soft-min condensate enhancement.
 """
 function external_internal_bubble_condensate!(
     Sβ::AbstractVector{ComplexF64},
@@ -405,7 +414,7 @@ function external_internal_bubble_condensate!(
     aux::SpectralCondensationAux,
     force_T0_bose_factor::Bool = false,
 )
-    _has_condensate(aux) || return Sβ
+    isempty(aux.conden_band_indices) && return Sβ
 
     nϕ = length(fields)
     length(Sβ) == nϕ ||
@@ -420,16 +429,17 @@ function external_internal_bubble_condensate!(
     βtemp = _inverse_temperature(sbs)
     z = ω + im * η
 
-    i = (aux.conden_index - 1) ÷ L + 1
-    j = (aux.conden_index - 1) % L + 1
-    qc = Vec3([(i - 1) / L, (j - 1) / L, 0.0])
+    qc = _spectral_condensation_momentum(aux, L)
 
     Uq = external_vertex(μ, q_ext)
     Vβ = zeros(ComplexF64, 12, 12)
 
-    prefactor = -Nu / (4 * sqrt(Ns * Nu))
+    prefactor = -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu))
 
-    # Condensate on the k line, normal on the k + q line.
+    # ------------------------------------------------------------------
+    # Selected pole on the k line, normal propagator on the k + q line.
+    # ------------------------------------------------------------------
+
     kc = qc
     kn = qc + q_reshaped
 
@@ -459,8 +469,14 @@ function external_internal_bubble_condensate!(
                 denom = z + Em - En
 
                 coherence = _residue_vertex_trace(
-                    Vn, weights_n, n, Vβ,
-                    Vc, weights_c, m, Uq,
+                    Vn,
+                    weights_n,
+                    n,
+                    Vβ,
+                    Vc,
+                    weights_c,
+                    m,
+                    Uq,
                 )
 
                 accum += coherence * occdiff / denom
@@ -470,7 +486,10 @@ function external_internal_bubble_condensate!(
         Sβ[iβ] += prefactor * accum
     end
 
-    # Normal on the k line, condensate on the k + q line.
+    # ------------------------------------------------------------------
+    # Normal propagator on the k line, selected pole on the k + q line.
+    # ------------------------------------------------------------------
+
     kn = qc - q_reshaped
     kc = qc
 
@@ -500,8 +519,14 @@ function external_internal_bubble_condensate!(
                 denom = z + Em - En
 
                 coherence = _residue_vertex_trace(
-                    Vc, weights_c, n, Vβ,
-                    Vn, weights_n, m, Uq,
+                    Vc,
+                    weights_c,
+                    n,
+                    Vβ,
+                    Vn,
+                    weights_n,
+                    m,
+                    Uq,
                 )
 
                 accum += coherence * occdiff / denom
@@ -522,13 +547,22 @@ end
         force_T0_bose_factor = false,
     )
 
-Add the mixed condensate-normal pieces to the row external-internal bubble.
+Add the mixed selected-normal pieces to the row external-internal bubble.
 
-The elastic condensate-condensate contribution is omitted.
+The row-side vertex is obtained from `row_internal_vertices!`; the row-side
+dagger labels the Gaussian row partner and does not denote Hermitian
+conjugation.
 
-The finite-size momentum sum collapses onto the condensed momentum. Therefore
-the mixed contribution carries an extra factor `Nu` relative to the explicit
-normal-normal momentum sum.
+The elastic selected-selected contribution is omitted.
+
+The branch-dependent collapsed momentum-sum factor is
+
+    finite_size_minimum: 1
+    pinned:              L^2
+
+implemented through `_condensate_sum_factor(aux, L)`. Therefore the prefactor is
+
+    -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu)).
 """
 function external_internal_bubble_row_condensate!(
     Sα::AbstractVector{ComplexF64},
@@ -543,7 +577,7 @@ function external_internal_bubble_row_condensate!(
     aux::SpectralCondensationAux,
     force_T0_bose_factor::Bool = false,
 )
-    _has_condensate(aux) || return Sα
+    isempty(aux.conden_band_indices) && return Sα
 
     nϕ = length(fields)
     length(Sα) == nϕ ||
@@ -558,16 +592,17 @@ function external_internal_bubble_row_condensate!(
     βtemp = _inverse_temperature(sbs)
     z = ω + im * η
 
-    i = (aux.conden_index - 1) ÷ L + 1
-    j = (aux.conden_index - 1) % L + 1
-    qc = Vec3([(i - 1) / L, (j - 1) / L, 0.0])
+    qc = _spectral_condensation_momentum(aux, L)
 
     Umq = external_vertex(μ, -q_ext)
     Vrow = zeros(ComplexF64, 12, 12)
 
-    prefactor = -Nu / (4 * sqrt(Ns * Nu))
+    prefactor = -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu))
 
-    # Condensate on the k line, normal on the k + q line.
+    # ------------------------------------------------------------------
+    # Selected pole on the k line, normal propagator on the k + q line.
+    # ------------------------------------------------------------------
+
     kc = qc
     kn = qc + q_reshaped
 
@@ -597,8 +632,14 @@ function external_internal_bubble_row_condensate!(
                 denom = z + Em - En
 
                 coherence = _residue_vertex_trace(
-                    Vc, weights_c, m, Vrow,
-                    Vn, weights_n, n, Umq,
+                    Vc,
+                    weights_c,
+                    m,
+                    Vrow,
+                    Vn,
+                    weights_n,
+                    n,
+                    Umq,
                 )
 
                 accum += coherence * occdiff / denom
@@ -608,7 +649,10 @@ function external_internal_bubble_row_condensate!(
         Sα[iα] += prefactor * accum
     end
 
-    # Normal on the k line, condensate on the k + q line.
+    # ------------------------------------------------------------------
+    # Normal propagator on the k line, selected pole on the k + q line.
+    # ------------------------------------------------------------------
+
     kn = qc - q_reshaped
     kc = qc
 
@@ -638,8 +682,14 @@ function external_internal_bubble_row_condensate!(
                 denom = z + Em - En
 
                 coherence = _residue_vertex_trace(
-                    Vn, weights_n, m, Vrow,
-                    Vc, weights_c, n, Umq,
+                    Vn,
+                    weights_n,
+                    m,
+                    Vrow,
+                    Vc,
+                    weights_c,
+                    n,
+                    Umq,
                 )
 
                 accum += coherence * occdiff / denom

@@ -11,23 +11,29 @@
     )
 
 Compute the saddle-point dynamical spin structure factor using the
-path-integral Green-function trace formula.
+path-integral Green-function residue formula.
 
 Returns `ret_normal, ret_condensate`, where both arrays have size
 `3 × length(energies)`.
 
 The normal-normal part uses `Green_SP_normal_residues`, so the selected
-condensed modes stored in `aux` are removed from the normal sector. The
-condensate-normal part uses `Green_SP_condensed_residues`, so the same selected
-modes and the same condensate weights are inserted into the condensate sector.
+soft-mode poles stored in `aux` are removed from the normal sector.
 
-By default, the normal-normal part uses finite-temperature Bose factors and
-the fluctuation-dissipation prefactor
+The selected-normal part uses `Green_SP_condensed_residues`, so the same
+selected soft-mode poles are inserted into the selected sector with the total
+Green-function pole weights stored in `aux.condensate_weights`.
 
-    1 / (1 - exp(-βω)).
+The branch-dependent collapsed momentum-sum factor is handled by
+`_condensate_sum_factor(aux, L)`:
 
-Setting `force_T0_bose_factor = true` restores the legacy zero-temperature
-negative-pole to positive-pole contribution.
+    finite_size_minimum: 1
+    pinned:              L^2
+
+Thus a finite-size selected pole is only split out as an ordinary BdG pole,
+while an active pinned soft-min pole receives the macroscopic collapsed-sum
+enhancement.
+
+The purely elastic selected-selected contribution is not included.
 """
 function dssf_SP(
     sbs::SchwingerBosonSystem,
@@ -61,91 +67,52 @@ function dssf_SP(
 
     # ------------------------------------------------------------------
     # Normal-normal contribution.
-    #
-    # The normal residue provider removes the selected condensed poles at
-    # aux.conden_index. This keeps the normal sector and condensate sector
-    # disjoint by construction.
     # ------------------------------------------------------------------
+
     for k in k_grid
         kq = k + q_reshaped
 
-        if force_T0_bose_factor
-            ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
-            ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
 
-            for a in 1:6
-                lneg = 6 + a
-                iszero(weights_k[lneg]) && continue
+        for m in eachindex(ϵs_k)
+            iszero(weights_k[m]) && continue
 
-                ω1 = -ϵs_k[lneg]
+            Em = ϵs_k[m]
 
-                for b in 1:6
-                    lpos = b
-                    iszero(weights_kq[lpos]) && continue
+            for n in eachindex(ϵs_kq)
+                iszero(weights_kq[n]) && continue
 
-                    ω2 = ϵs_kq[lpos]
-                    ΔE = ω1 + ω2
+                En = ϵs_kq[n]
+                ΔE = real(En - Em)
 
-                    for μ in 1:3
-                        trace_weight = _residue_vertex_trace(
-                            Vkq, weights_kq, lpos, Umq[μ],
-                            Vk, weights_k, lneg, Uq[μ],
-                        )
+                transition_factor = _dssf_transition_factor(
+                    Em,
+                    En,
+                    βtemp,
+                    force_T0_bose_factor,
+                )
 
-                        weight = -real(trace_weight) / (8Ns)
+                iszero(transition_factor) && continue
 
-                        for (ie, energy) in enumerate(energies)
-                            ret_normal[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
-                        end
-                    end
-                end
-            end
-        else
-            ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
-            ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+                for μ in 1:3
+                    trace_weight = _residue_vertex_trace(
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Umq[μ],
+                        Vk,
+                        weights_k,
+                        m,
+                        Uq[μ],
+                    )
 
-            for m in eachindex(ϵs_k)
-                iszero(weights_k[m]) && continue
+                    weight =
+                        -real(trace_weight) * transition_factor / (8Ns)
 
-                Em = ϵs_k[m]
-                nb_m = _nB_BdG(Em, βtemp)
-
-                for n in eachindex(ϵs_kq)
-                    iszero(weights_kq[n]) && continue
-
-                    En = ϵs_kq[n]
-                    nb_n = _nB_BdG(En, βtemp)
-
-                    ΔE = En - Em
-                    occdiff = nb_n - nb_m
-                    iszero(occdiff) && continue
-
-                    x = βtemp * real(ΔE)
-
-                    transition_factor = if abs(x) < 1e-10
-                        nb_mid = _nB_BdG((Em + En) / 2, βtemp)
-                        -nb_mid * (1 + nb_mid)
-                    elseif x > 700
-                        occdiff
-                    elseif x < -700
-                        0.0
-                    else
-                        occdiff / (1 - exp(-x))
-                    end
-
-                    iszero(transition_factor) && continue
-
-                    for μ in 1:3
-                        trace_weight = _residue_vertex_trace(
-                            Vkq, weights_kq, n, Umq[μ],
-                            Vk, weights_k, m, Uq[μ],
-                        )
-
-                        weight = -real(trace_weight) * transition_factor / (8Ns)
-
-                        for (ie, energy) in enumerate(energies)
-                            ret_normal[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
-                        end
+                    for (ie, energy) in enumerate(energies)
+                        ret_normal[μ, ie] +=
+                            weight * lorentzian(energy - ΔE, Γ)
                     end
                 end
             end
@@ -153,34 +120,24 @@ function dssf_SP(
     end
 
     # ------------------------------------------------------------------
-    # Condensate-normal contribution.
+    # Selected-normal contribution.
     #
-    # Green-function split:
-    #
-    #     G G = G_n G_n
-    #         + G_c G_n
-    #         + G_n G_c
-    #         + G_c G_c.
-    #
-    # The normal-normal part was already computed above using
-    # Green_SP_normal_residues on both lines. Here we add both mixed
-    # condensate-normal orientations and omit the elastic G_c G_c piece.
-    #
-    # The extra L^2 is the collapsed finite-size momentum sum.
+    # Keep the same behavior as before: selected-normal terms are collected
+    # in `ret_condensate`, while the purely selected-selected elastic piece
+    # is omitted.
     # ------------------------------------------------------------------
-    i = (aux.conden_index - 1) ÷ L + 1
-    j = (aux.conden_index - 1) % L + 1
 
-    qc = Vec3([(i - 1) / L, (j - 1) / L, 0.0])
+    qc = _spectral_condensation_momentum(aux, L)
+    condensate_sum_factor = _condensate_sum_factor(aux, L)
 
     # --------------------------------------------------------------
     # Orientation 1:
     #
     #     G_n(k + q) G_c(k),
     #
-    # with k = qc. This is the old V2 / -k condensed-line contribution.
-    # The condensed pole is a negative BdG pole on the k line.
+    # with k = qc. The selected pole is on the second line.
     # --------------------------------------------------------------
+
     k = qc
     kq = qc + q_reshaped
 
@@ -195,34 +152,35 @@ function dssf_SP(
             lpos = b
             iszero(weights_n[lpos]) && continue
 
-            ΔE = ϵs_n[lpos]
+            ΔE = real(ϵs_n[lpos])
 
-            thermal_factor = if force_T0_bose_factor
-                1.0
-            else
-                x = βtemp * real(ΔE)
+            transition_factor = _dssf_condensate_transition_factor(
+                ΔE,
+                βtemp,
+                force_T0_bose_factor,
+            )
 
-                if abs(x) < 1e-10
-                    continue
-                elseif x > 700
-                    1.0
-                elseif x < -700
-                    0.0
-                else
-                    1 / (1 - exp(-x))
-                end
-            end
+            iszero(transition_factor) && continue
 
             for μ in 1:3
                 trace_weight = _residue_vertex_trace(
-                    Vn, weights_n, lpos, Umq[μ],
-                    Vc, weights_c, lcond_neg, Uq[μ],
+                    Vn,
+                    weights_n,
+                    lpos,
+                    Umq[μ],
+                    Vc,
+                    weights_c,
+                    lcond_neg,
+                    Uq[μ],
                 )
 
-                weight = thermal_factor * (-L^2 * real(trace_weight) / (8Ns))
+                weight = transition_factor * (
+                    -condensate_sum_factor * real(trace_weight) / (8Ns)
+                )
 
                 for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
+                    ret_condensate[μ, ie] +=
+                        weight * lorentzian(energy - ΔE, Γ)
                 end
             end
         end
@@ -233,9 +191,9 @@ function dssf_SP(
     #
     #     G_c(k + q) G_n(k),
     #
-    # with k + q = qc, i.e. k = qc - q. The condensed pole is now a
-    # positive BdG pole on the k + q line.
+    # with k + q = qc. The selected pole is on the first line.
     # --------------------------------------------------------------
+
     k = qc - q_reshaped
     kq = qc
 
@@ -250,34 +208,35 @@ function dssf_SP(
             lcond_pos = b
             iszero(weights_c[lcond_pos]) && continue
 
-            ΔE = -ϵs_n[lneg]
+            ΔE = real(-ϵs_n[lneg])
 
-            thermal_factor = if force_T0_bose_factor
-                1.0
-            else
-                x = βtemp * real(ΔE)
+            transition_factor = _dssf_condensate_transition_factor(
+                ΔE,
+                βtemp,
+                force_T0_bose_factor,
+            )
 
-                if abs(x) < 1e-10
-                    continue
-                elseif x > 700
-                    1.0
-                elseif x < -700
-                    0.0
-                else
-                    1 / (1 - exp(-x))
-                end
-            end
+            iszero(transition_factor) && continue
 
             for μ in 1:3
                 trace_weight = _residue_vertex_trace(
-                    Vc, weights_c, lcond_pos, Umq[μ],
-                    Vn, weights_n, lneg, Uq[μ],
+                    Vc,
+                    weights_c,
+                    lcond_pos,
+                    Umq[μ],
+                    Vn,
+                    weights_n,
+                    lneg,
+                    Uq[μ],
                 )
 
-                weight = thermal_factor * (-L^2 * real(trace_weight) / (8Ns))
+                weight = transition_factor * (
+                    -condensate_sum_factor * real(trace_weight) / (8Ns)
+                )
 
                 for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] += weight * lorentzian(energy - ΔE, Γ)
+                    ret_condensate[μ, ie] +=
+                        weight * lorentzian(energy - ΔE, Γ)
                 end
             end
         end
@@ -302,27 +261,29 @@ Compute the Gaussian-fluctuation counter-diagram contribution to the dynamical
 spin structure factor.
 
 This implements the Fig. 1(b) contribution in the row-column sector convention
-of the current note:
+of the current note,
 
     χ_FL^{μμ}(q,ω)
-        = (1/N) S^{1+1;μ}_{β}(q,ω)
-                D_{βα}(q,ω)
-                S^{†,1+1;μ}_{α}(q,ω),
+        = (1 / N) S^{1+1;μ}_{β}(q,ω)
+                  D_{βα}(q,ω)
+                  S^{†,1+1;μ}_{α}(q,ω),
 
 with
 
     D(q,z) = [Π0(q) - Π(q,z)]^{-1}.
 
-The first external bubble is a column bubble, while the second is the row-side
+The first external bubble is the column bubble. The second is the row-side
 bubble in the same external sector. The row-side dagger labels the Gaussian
 row partner and does not denote Hermitian conjugation.
 
 Returns `ret_FL_normal, ret_FL_condensate`, where both arrays have size
 `3 × length(energies)`.
 
-The RPA propagator is always built from the full polarization, including the
-normal-normal and mixed condensate-normal pieces. The returned split is made
-only at the level of the external-internal bubbles:
+The RPA propagator is built from the full polarization, including the
+normal-normal, selected-normal, and selected-selected pieces handled inside
+`polarization!`.
+
+The returned split is made only at the level of the external-internal bubbles:
 
     ret_FL_normal:
         uses the normal parts of both external-internal bubbles.
@@ -331,9 +292,13 @@ only at the level of the external-internal bubbles:
         is the difference between the full external-bubble result and the
         normal external-bubble result.
 
-The internal-field basis is restricted to active fields. This removes exactly
-inactive channels whose bare kernel and vertices vanish, preventing artificial
-singular blocks in the RPA kernel.
+The selected soft-mode weights and branch-dependent collapsed-sum factors are
+handled by `SpectralCondensationAux`, `Green_SP_condensed_residues`, and
+`_condensate_sum_factor`.
+
+The internal-field basis is restricted to active fields. This removes inactive
+channels whose bare kernel and vertices vanish, preventing artificial singular
+blocks in the RPA kernel.
 """
 function dssf_FL(
     sbs::SchwingerBosonSystem,
@@ -474,10 +439,12 @@ function dssf_FL(
             )
 
             χ_FL_normal =
-                (1 / Nflavor) * (transpose(Scol_normal) * (K \ Srow_normal))
+                (1 / Nflavor) *
+                (transpose(Scol_normal) * (K \ Srow_normal))
 
             χ_FL_full =
-                (1 / Nflavor) * (transpose(Scol_full) * (K \ Srow_full))
+                (1 / Nflavor) *
+                (transpose(Scol_full) * (K \ Srow_full))
 
             ret_FL_normal[μ, ie] = imag(χ_FL_normal) / π
             ret_FL_condensate[μ, ie] =

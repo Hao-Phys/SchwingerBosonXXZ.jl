@@ -4,55 +4,33 @@
     spectral_condensation_aux(
         sbs::SchwingerBosonSystem;
         check_constraint::Bool = true,
-        constraint_atol::Float64 = 1e-4,
+        constraint_atol::Float64 = 1e-3,
         pin_atol::Float64 = 1e-6,
         degeneracy_atol::Float64 = 1e-6,
         weight_atol::Float64 = 1e-10,
     ) -> SpectralCondensationAux
 
-Construct the spectral-condensation auxiliary object used to split normal and
-condensed contributions in DSSF calculations.
+Construct the spectral-condensation auxiliary object used to split the
+saddle-point Green function into normal and selected soft-mode sectors.
 
 This function assumes that `sbs` is already an optimized saddle-point solution.
-By default, it checks the local constraint by evaluating `expectation_values(sbs)`
-and requiring `expectation_values(sbs)[2] ≈ 2S` on all sublattices. This
-check can be skipped with `check_constraint = false`.
 
-The condensed sector is selected as follows:
+The returned `condensate_weights` are total pole multipliers for the split
+Green function. They are consumed directly by `Green_SP_condensed_residues`.
 
-  - If BdG modes pinned near `±sbs.condensation_ϵ` are found, those modes are
-    treated as the condensed sector and `selection_kind = :pinned`.
+Conventions:
 
-  - If no pinned mode is found, the smallest positive-energy finite-size BdG
-    mode is treated as the condensed sector, together with any degenerate
-    partners within `degeneracy_atol`. In this case
-    `selection_kind = :finite_size_minimum`.
+- For `selection_kind === :finite_size_minimum`, the selected mode is only an
+  ordinary finite-size BdG pole split out from the normal sector. Therefore its
+  total Green-function pole multiplier is exactly `1`.
 
-The returned `SpectralCondensationAux` stores the condensed momentum index,
-the selected BdG pole indices, their condensate weights `nc_i`, the number of
-positive-energy condensed modes, the selection kind, and the raw finite-size
-minimum gap.
+- For `selection_kind === :pinned`, the selected pole is removed from the normal
+  sector and reinserted in the condensed sector together with the extra soft-min
+  occupation. If `ξ` denotes the extra soft-min occupation inferred from the
+  constraint sum rule, the total Green-function pole multiplier is `1 + ξ`.
 
-For pinned modes, the condensate weights are computed as `nc_i = ξ_i + 1`,
-where `ξ_i` is the soft-min condensate fraction inferred from the constraint
-sum rule. For finite-size-gap modes, the weights are computed from the regular
-finite-size BdG expression, not from the soft-min `ξ_i`.
-
-Keyword arguments:
-
-  - `check_constraint`: whether to check the optimized constraint before
-    selecting the condensed sector.
-
-  - `constraint_atol`: absolute tolerance for the constraint check.
-
-  - `pin_atol`: absolute tolerance used to identify pinned modes near
-    `±sbs.condensation_ϵ`.
-
-  - `degeneracy_atol`: absolute tolerance used to include degenerate partners
-    of the smallest finite-size gap.
-
-  - `weight_atol`: tolerance below which small negative condensate weights are
-    treated as numerical roundoff.
+The finite-size branch therefore does not compute a condensate fraction from the
+mode charge. It only selects the pole and assigns unit weight.
 """
 function spectral_condensation_aux(
     sbs::SchwingerBosonSystem;
@@ -71,8 +49,8 @@ function spectral_condensation_aux(
 
         if !all(x -> isapprox(x, target; atol = constraint_atol), constraint_values)
             error(
-                "The input SchwingerBosonSystem does not appear to satisfy the constraint. " *
-                "Expected expectation_values(sbs)[2] ≈ $(target), got $(constraint_values). " *
+                "The input SchwingerBosonSystem does not appear to satisfy the constraint.\n" *
+                "Expected expectation_values(sbs)[2] ≈ $(target), got $(constraint_values).\n" *
                 "Pass check_constraint = false to skip this check.",
             )
         end
@@ -104,15 +82,17 @@ function spectral_condensation_aux(
             best_E .= E
         end
 
-        pinned = findall(
-            l -> isapprox(abs(E[l]), condensation_ϵ; atol = pin_atol),
-            eachindex(E),
-        )
+        if condensation_ϵ > 0
+            pinned = findall(
+                l -> isapprox(abs(E[l]), condensation_ϵ; atol = pin_atol),
+                eachindex(E),
+            )
 
-        if !isempty(pinned) && gap < pinned_gap
-            pinned_index = ik
-            pinned_gap = gap
-            pinned_band_indices = pinned
+            if !isempty(pinned) && gap < pinned_gap
+                pinned_index = ik
+                pinned_gap = gap
+                pinned_band_indices = pinned
+            end
         end
     end
 
@@ -144,14 +124,32 @@ function spectral_condensation_aux(
     dynamical_matrix!(D, sbs, q_condensed)
     bogoliubov!(V, D)
 
-    ∂ID∂μ = zeros(ComplexF64, 12, 12)
-    ∂ID∂μ0!(∂ID∂μ, 1)
-
     condensate_weights = zeros(Float64, 12)
     positive_band_indices = filter(l -> 1 <= l <= 6, conden_band_indices)
 
-    if selection_kind === :pinned
+    if selection_kind === :finite_size_minimum
+        # Exact finite-size split:
+        #
+        #     G_full = G_normal + G_selected
+        #
+        # The selected mode is an ordinary BdG pole. Its total pole multiplier
+        # in the split Green function is exactly one.
+        for band in conden_band_indices
+            condensate_weights[band] = 1.0
+        end
+
+    elseif selection_kind === :pinned
+        # Active soft-min treatment:
+        #
+        # `single_particle_density_matrix!` already contains the ordinary BdG
+        # pole with unit multiplier. The canonical soft-min correction adds an
+        # extra occupation ξ. Since the split Green function removes the
+        # selected pole from the normal sector, the condensed sector must carry
+        # the total multiplier 1 + ξ.
         Nu = L^2
+
+        ∂ID∂μ = zeros(ComplexF64, 12, 12)
+        ∂ID∂μ0!(∂ID∂μ, 1)
 
         P_tmp = zeros(ComplexF64, 12, 12)
         D_tmp = zeros(ComplexF64, 12, 12)
@@ -173,41 +171,27 @@ function spectral_condensation_aux(
             qcsum += -real(v' * Ĩ * ∂ID∂μ * v)
         end
 
+        if abs(qcsum) < weight_atol
+            error(
+                "Selected pinned mode has vanishing constraint charge. " *
+                "qcsum = $qcsum at q = $q_condensed.",
+            )
+        end
+
         ξ = (2S + 1 - N_normal) / qcsum
 
         if ξ < -weight_atol
             error(
-                "Negative soft-min condensate fraction ξ = $ξ for pinned modes. " *
-                "This indicates that the input saddle point is inconsistent with the pinned condensation treatment.",
+                "Negative soft-min condensate fraction ξ = $ξ for pinned modes.\n" *
+                "This indicates that the input saddle point is inconsistent " *
+                "with the pinned condensation treatment.",
             )
         end
 
-        nc = max(ξ, 0.0) + 1.0
+        total_weight = 1.0 + max(ξ, 0.0)
 
         for band in conden_band_indices
-            condensate_weights[band] = nc
-        end
-    elseif selection_kind === :finite_size_minimum
-        qsum = 0.0
-
-        for band in positive_band_indices
-            v = view(V, :, band)
-            q = -real(v' * Ĩ * ∂ID∂μ * v)
-
-            if q < -weight_atol
-                error(
-                    "Negative regular finite-size condensate weight q = $q " *
-                    "for band $band at q = $q_condensed.",
-                )
-            end
-
-            qsum += max(q, 0.0)
-        end
-
-        nc = qsum / num_conden
-
-        for band in conden_band_indices
-            condensate_weights[band] = nc
+            condensate_weights[band] = total_weight
         end
     end
 

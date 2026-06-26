@@ -347,12 +347,25 @@ end
         force_T0_bose_factor = false,
     )
 
-Add the mixed pieces
+Add the mixed selected-normal pieces to the polarization operator,
 
-    G_c(k) G_n(k + q),    G_n(k) G_c(k + q).
+    G_c(k) G_n(k + q) + G_n(k) G_c(k + q).
 
-For `selection_kind === :finite_size_minimum`, this is an exact finite-size
-pole split and therefore uses the same prefactor as the ordinary k-sum bubble.
+The selected sector is specified by `SpectralCondensationAux` and is evaluated
+with `Green_SP_condensed_residues`.
+
+The branch-dependent collapsed momentum-sum factor is
+
+    finite_size_minimum: 1
+    pinned:              L^2
+
+implemented through `_condensate_sum_factor(aux, L)`. Therefore the prefactor is
+
+    _condensate_sum_factor(aux, L) / (2 * Nflavor * Nk).
+
+For `:finite_size_minimum`, this gives the same normalization as the original
+finite-size momentum sum. For `:pinned`, this gives the macroscopic selected-line
+normalization.
 """
 function polarization_condensate_normal!(
     Π::AbstractMatrix{ComplexF64},
@@ -362,7 +375,7 @@ function polarization_condensate_normal!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, SpectralCondensationAux} = nothing,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
     aux === nothing && return Π
@@ -375,28 +388,24 @@ function polarization_condensate_normal!(
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
-    i = (aux.conden_index - 1) ÷ sbs.L + 1
-    j = (aux.conden_index - 1) % sbs.L + 1
-    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+    (; L) = sbs
 
+    qc = _spectral_condensation_momentum(aux, L)
     βtemp = _inverse_temperature(sbs)
 
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    prefactor = if aux.selection_kind === :finite_size_minimum
-        1 / (2 * Nflavor * Nk)
-    else
-        1 / (2 * Nflavor)
-    end
+    prefactor = _condensate_sum_factor(aux, L) / (2 * Nflavor * Nk)
 
     # ------------------------------------------------------------------
-    # Condensate on the k line, normal propagator on the k + q line.
+    # Selected pole on the k line, normal propagator on the k + q line.
     # ------------------------------------------------------------------
+
     kc = qc
     kn = qc + q
 
-    ϵs_c, Vc, weights_c = _rpa_condensed_residues(sbs, kc, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
     ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
 
     for (iα, α) in pairs(fields)
@@ -425,8 +434,14 @@ function polarization_condensate_normal!(
                     denom = z + Em - En
 
                     coherence = _residue_vertex_trace(
-                        Vn, weights_n, n, Vcol,
-                        Vc, weights_c, m, Vrow,
+                        Vn,
+                        weights_n,
+                        n,
+                        Vcol,
+                        Vc,
+                        weights_c,
+                        m,
+                        Vrow,
                     )
 
                     accum += coherence * occdiff / denom
@@ -438,13 +453,14 @@ function polarization_condensate_normal!(
     end
 
     # ------------------------------------------------------------------
-    # Normal propagator on the k line, condensate on the k + q line.
+    # Normal propagator on the k line, selected pole on the k + q line.
     # ------------------------------------------------------------------
+
     kn = qc - q
     kc = qc
 
     ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
-    ϵs_c, Vc, weights_c = _rpa_condensed_residues(sbs, kc, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kn, kc)
@@ -472,8 +488,14 @@ function polarization_condensate_normal!(
                     denom = z + Em - En
 
                     coherence = _residue_vertex_trace(
-                        Vc, weights_c, n, Vcol,
-                        Vn, weights_n, m, Vrow,
+                        Vc,
+                        weights_c,
+                        n,
+                        Vcol,
+                        Vn,
+                        weights_n,
+                        m,
+                        Vrow,
                     )
 
                     accum += coherence * occdiff / denom
@@ -495,10 +517,27 @@ end
         force_T0_bose_factor = false,
     )
 
-Add the `G_c G_c` piece.
+Add the selected-selected `G_c G_c` piece to the polarization operator.
 
-For the finite-size gap case this is required to make the split exactly
-reconstruct the original finite-size normal bubble.
+For `:finite_size_minimum`, this piece is required for the split
+
+    G_full = G_normal + G_condensed
+
+to exactly reconstruct the original finite-size bubble.
+
+For `:pinned`, this is the selected-sector counterpart of the macroscopic
+condensate-condensate polarization.
+
+The branch-dependent prefactor is
+
+    _condensate_sum_factor(aux, L)^2 / (2 * Nflavor * Nk).
+
+Thus:
+
+    finite_size_minimum: 1 / (2 * Nflavor * Nk)
+    pinned:              Nk / (2 * Nflavor)
+
+assuming the standard `Nk = L^2` grid.
 """
 function polarization_condensate_condensate!(
     Π::AbstractMatrix{ComplexF64},
@@ -508,7 +547,7 @@ function polarization_condensate_condensate!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, SpectralCondensationAux} = nothing,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
     force_T0_bose_factor::Bool = false,
 )
     aux === nothing && return Π
@@ -521,11 +560,11 @@ function polarization_condensate_condensate!(
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
+    (; L) = sbs
+
     βtemp = _inverse_temperature(sbs)
 
-    i = (aux.conden_index - 1) ÷ sbs.L + 1
-    j = (aux.conden_index - 1) % sbs.L + 1
-    qc = Vec3([(i - 1) / sbs.L, (j - 1) / sbs.L, 0.0])
+    qc = _spectral_condensation_momentum(aux, L)
 
     kc = qc
     kq = qc + q
@@ -535,14 +574,11 @@ function polarization_condensate_condensate!(
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    ϵs_k, Vk, weights_k = _rpa_condensed_residues(sbs, kc, aux)
-    ϵs_kq, Vkq, weights_kq = _rpa_condensed_residues(sbs, kq, aux)
+    ϵs_k, Vk, weights_k = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_kq, Vkq, weights_kq = Green_SP_condensed_residues(sbs, kq, aux)
 
-    prefactor = if aux.selection_kind === :finite_size_minimum
-        1 / (2 * Nflavor * Nk)
-    else
-        Nk / (2 * Nflavor)
-    end
+    condensate_sum_factor = _condensate_sum_factor(aux, L)
+    prefactor = condensate_sum_factor^2 / (2 * Nflavor * Nk)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kc, kq)
@@ -570,8 +606,14 @@ function polarization_condensate_condensate!(
                     denom = z + Em - En
 
                     coherence = _residue_vertex_trace(
-                        Vkq, weights_kq, n, Vcol,
-                        Vk, weights_k, m, Vrow,
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Vcol,
+                        Vk,
+                        weights_k,
+                        m,
+                        Vrow,
                     )
 
                     accum += coherence * occdiff / denom
@@ -652,102 +694,4 @@ function rpa_kernel!(
     )
 
     return rpa_kernel!(K, Π0, Π)
-end
-
-# ----------------------------------------------------------------------
-# Helpers local to this file
-# ----------------------------------------------------------------------
-
-@inline function _inverse_temperature(sbs::SchwingerBosonSystem)
-    T = sbs.T
-    return iszero(T) ? Inf : inv(T)
-end
-
-"""
-    _nB_T0(E)
-
-Zero-temperature Bose factor for BdG pole energies.
-
-For positive poles, `nB(E) = 0`. For negative poles, `nB(E) = -1`.
-"""
-@inline function _nB_T0(E::Real)
-    atol = 1e-12
-
-    if E > atol
-        return 0.0
-    elseif E < -atol
-        return -1.0
-    else
-        throw(ArgumentError(
-            "Encountered a zero-energy pole in a normal bubble. " *
-            "Pass condensation data through `aux` so pinned condensate modes " *
-            "are removed, or treat the condensate contribution explicitly."
-        ))
-    end
-end
-
-"""
-    _nB_BdG(E, β)
-
-Finite-temperature Bose factor for a BdG pole energy `E`.
-
-Negative BdG poles correctly approach `-1` as `T -> 0`.
-"""
-@inline function _nB_BdG(E::Number, β::Real)
-    Er = real(E)
-
-    if !isfinite(β)
-        return _nB_T0(Er)
-    end
-
-    x = β * Er
-
-    if x > 700
-        return 0.0
-    elseif x < -700
-        return -1.0
-    elseif abs(x) < 1e-12
-        throw(ArgumentError(
-            "Encountered a zero-energy pole in a finite-temperature Bose factor."
-        ))
-    else
-        return 1 / expm1(x)
-    end
-end
-
-@inline function _pole_bose(E::Number, β::Real, force_T0_bose_factor::Bool)
-    return force_T0_bose_factor ? _nB_T0(real(E)) : _nB_BdG(E, β)
-end
-
-"""
-    _rpa_condensed_residues(sbs, q, aux)
-
-Condensed residues for the RPA split.
-
-For `selection_kind === :finite_size_minimum`, the selected modes are ordinary
-finite-size poles split out of the full Green function. Therefore their RPA
-residue weight must be exactly one, so that
-
-    G_full = G_normal + G_condensed
-
-holds algebraically.
-
-For other selections, this falls back to the stored condensate weights.
-"""
-function _rpa_condensed_residues(
-    sbs::SchwingerBosonSystem,
-    q,
-    aux::SpectralCondensationAux,
-)
-    ϵs, V, weights = Green_SP_condensed_residues(sbs, q, aux)
-
-    if aux.selection_kind === :finite_size_minimum
-        for l in aux.conden_band_indices
-            if !iszero(weights[l])
-                weights[l] = 1.0
-            end
-        end
-    end
-
-    return ϵs, V, weights
 end
