@@ -7,7 +7,6 @@
         energies,
         Γ;
         aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
-        force_T0_bose_factor::Bool = false,
     )
 
 Compute the saddle-point dynamical spin structure factor using the
@@ -33,6 +32,15 @@ Thus a finite-size selected pole is only split out as an ordinary BdG pole,
 while an active pinned soft-min pole receives the macroscopic collapsed-sum
 enhancement.
 
+For the selected-normal terms, the transition energy keeps the finite selected
+soft-mode energy:
+
+    Orientation 1: ΔE = E_normal(k + q) - E_selected(k)
+    Orientation 2: ΔE = E_selected(k + q) - E_normal(k)
+
+This is important for finite-size selected modes whose soft-mode energy is not
+exactly zero.
+
 The purely elastic selected-selected contribution is not included.
 """
 function dssf_SP(
@@ -41,7 +49,6 @@ function dssf_SP(
     energies,
     Γ;
     aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
-    force_T0_bose_factor::Bool = false,
 )
     num_energies = length(energies)
 
@@ -90,7 +97,6 @@ function dssf_SP(
                     Em,
                     En,
                     βtemp,
-                    force_T0_bose_factor,
                 )
 
                 iszero(transition_factor) && continue
@@ -122,9 +128,8 @@ function dssf_SP(
     # ------------------------------------------------------------------
     # Selected-normal contribution.
     #
-    # Keep the same behavior as before: selected-normal terms are collected
-    # in `ret_condensate`, while the purely selected-selected elastic piece
-    # is omitted.
+    # Selected-normal terms are collected in `ret_condensate`, while the
+    # purely selected-selected elastic piece is omitted.
     # ------------------------------------------------------------------
 
     qc = _spectral_condensation_momentum(aux, L)
@@ -148,16 +153,19 @@ function dssf_SP(
         lcond_neg = 6 + a
         iszero(weights_c[lcond_neg]) && continue
 
+        Em = ϵs_c[lcond_neg]
+
         for b in 1:6
             lpos = b
             iszero(weights_n[lpos]) && continue
 
-            ΔE = real(ϵs_n[lpos])
+            En = ϵs_n[lpos]
+            ΔE = real(En - Em)
 
-            transition_factor = _dssf_condensate_transition_factor(
-                ΔE,
+            transition_factor = _dssf_transition_factor(
+                Em,
+                En,
                 βtemp,
-                force_T0_bose_factor,
             )
 
             iszero(transition_factor) && continue
@@ -204,16 +212,19 @@ function dssf_SP(
         lneg = 6 + a
         iszero(weights_n[lneg]) && continue
 
+        Em = ϵs_n[lneg]
+
         for b in 1:6
             lcond_pos = b
             iszero(weights_c[lcond_pos]) && continue
 
-            ΔE = real(-ϵs_n[lneg])
+            En = ϵs_c[lcond_pos]
+            ΔE = real(En - Em)
 
-            transition_factor = _dssf_condensate_transition_factor(
-                ΔE,
+            transition_factor = _dssf_transition_factor(
+                Em,
+                En,
                 βtemp,
-                force_T0_bose_factor,
             )
 
             iszero(transition_factor) && continue
@@ -253,52 +264,44 @@ end
         Γ;
         aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
         Nflavor::Real = 2,
-        force_T0_bose_factor::Bool = false,
         κtol::Real = 1e-12,
+        return_components::Bool = false,
     )
 
-Compute the Gaussian-fluctuation counter-diagram contribution to the dynamical
+Compute the Gaussian-fluctuation Fig. 1(b) contribution to the dynamical
 spin structure factor.
 
-This implements the Fig. 1(b) contribution in the row-column sector convention
-of the current note,
+The Lorentzian helper `lorentzian(x, Γ)` uses Γ as the full width at half
+maximum. Therefore the retarded frequency broadening used here is η = Γ / 2.
 
-    χ_FL^{μμ}(q,ω)
-        = (1 / N) S^{1+1;μ}_{β}(q,ω)
-                  D_{βα}(q,ω)
-                  S^{†,1+1;μ}_{α}(q,ω),
+The external-bubble decomposition is
+
+    S_full = S_normal + S_mixed,
+
+where `S_mixed` denotes the mixed normal-condensate external-internal bubble,
+not a condensate-condensate elastic bubble.
+
+The returned backward-compatible pair is
+
+    ret_FL_normal, ret_FL_condensate,
 
 with
 
-    D(q,z) = [Π0(q) - Π(q,z)]^{-1}.
+    ret_FL_normal      = S_normal D S_normal,
+    ret_FL_condensate = S_mixed D S_mixed
+                       + S_normal D S_mixed
+                       + S_mixed D S_normal.
 
-The first external bubble is the column bubble. The second is the row-side
-bubble in the same external sector. The row-side dagger labels the Gaussian
-row partner and does not denote Hermitian conjugation.
+If `return_components=true`, a named tuple is returned with the separated
+pieces:
 
-Returns `ret_FL_normal, ret_FL_condensate`, where both arrays have size
-`3 × length(energies)`.
-
-The RPA propagator is built from the full polarization, including the
-normal-normal, selected-normal, and selected-selected pieces handled inside
-`polarization!`.
-
-The returned split is made only at the level of the external-internal bubbles:
-
-    ret_FL_normal:
-        uses the normal parts of both external-internal bubbles.
-
-    ret_FL_condensate:
-        is the difference between the full external-bubble result and the
-        normal external-bubble result.
-
-The selected soft-mode weights and branch-dependent collapsed-sum factors are
-handled by `SpectralCondensationAux`, `Green_SP_condensed_residues`, and
-`_condensate_sum_factor`.
-
-The internal-field basis is restricted to active fields. This removes inactive
-channels whose bare kernel and vertices vanish, preventing artificial singular
-blocks in the RPA kernel.
+    normal,
+    mixed_mixed,
+    normal_mixed,
+    mixed_normal,
+    cross,
+    condensate,
+    total.
 """
 function dssf_FL(
     sbs::SchwingerBosonSystem,
@@ -307,13 +310,15 @@ function dssf_FL(
     Γ;
     aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
     Nflavor::Real = 2,
-    force_T0_bose_factor::Bool = false,
     κtol::Real = 1e-12,
+    return_components::Bool = false,
 )
     num_energies = length(energies)
 
     ret_FL_normal = zeros(Float64, 3, num_energies)
-    ret_FL_condensate = zeros(Float64, 3, num_energies)
+    ret_FL_mixed_mixed = zeros(Float64, 3, num_energies)
+    ret_FL_normal_mixed = zeros(Float64, 3, num_energies)
+    ret_FL_mixed_normal = zeros(Float64, 3, num_energies)
 
     (; L) = sbs
 
@@ -351,14 +356,18 @@ function dssf_FL(
 
     Scol_normal = zeros(ComplexF64, nϕ)
     Srow_normal = zeros(ComplexF64, nϕ)
-
     Scol_full = zeros(ComplexF64, nϕ)
     Srow_full = zeros(ComplexF64, nϕ)
+    Scol_mixed = zeros(ComplexF64, nϕ)
+    Srow_mixed = zeros(ComplexF64, nϕ)
 
     Pi0!(Π0, sbs, fields)
 
+    # Γ is the FWHM used by `lorentzian`; η is the retarded HWHM.
+    η = Γ / 2
+
     for (ie, energy) in enumerate(energies)
-        z = energy + im * Γ
+        z = energy + im * η
 
         fill!(Π, 0.0 + 0.0im)
         fill!(K, 0.0 + 0.0im)
@@ -372,7 +381,6 @@ function dssf_FL(
             z;
             Nflavor = Nflavor,
             aux = aux,
-            force_T0_bose_factor = force_T0_bose_factor,
         )
 
         rpa_kernel!(K, Π0, Π)
@@ -387,9 +395,8 @@ function dssf_FL(
                 q_reshaped,
                 energy,
                 μ;
-                η = Γ,
+                η = η,
                 aux = aux,
-                force_T0_bose_factor = force_T0_bose_factor,
                 include_condensate = false,
             )
 
@@ -402,9 +409,8 @@ function dssf_FL(
                 q_reshaped,
                 energy,
                 μ;
-                η = Γ,
+                η = η,
                 aux = aux,
-                force_T0_bose_factor = force_T0_bose_factor,
                 include_condensate = false,
             )
 
@@ -417,9 +423,8 @@ function dssf_FL(
                 q_reshaped,
                 energy,
                 μ;
-                η = Γ,
+                η = η,
                 aux = aux,
-                force_T0_bose_factor = force_T0_bose_factor,
                 include_condensate = true,
             )
 
@@ -432,24 +437,54 @@ function dssf_FL(
                 q_reshaped,
                 energy,
                 μ;
-                η = Γ,
+                η = η,
                 aux = aux,
-                force_T0_bose_factor = force_T0_bose_factor,
                 include_condensate = true,
             )
 
+            @. Scol_mixed = Scol_full - Scol_normal
+            @. Srow_mixed = Srow_full - Srow_normal
+
+            D_Srow_normal = K \ Srow_normal
+            D_Srow_mixed = K \ Srow_mixed
+
             χ_FL_normal =
                 (1 / Nflavor) *
-                (transpose(Scol_normal) * (K \ Srow_normal))
+                (transpose(Scol_normal) * D_Srow_normal)
 
-            χ_FL_full =
+            χ_FL_normal_mixed =
                 (1 / Nflavor) *
-                (transpose(Scol_full) * (K \ Srow_full))
+                (transpose(Scol_normal) * D_Srow_mixed)
+
+            χ_FL_mixed_normal =
+                (1 / Nflavor) *
+                (transpose(Scol_mixed) * D_Srow_normal)
+
+            χ_FL_mixed_mixed =
+                (1 / Nflavor) *
+                (transpose(Scol_mixed) * D_Srow_mixed)
 
             ret_FL_normal[μ, ie] = imag(χ_FL_normal) / π
-            ret_FL_condensate[μ, ie] =
-                imag(χ_FL_full - χ_FL_normal) / π
+            ret_FL_normal_mixed[μ, ie] = imag(χ_FL_normal_mixed) / π
+            ret_FL_mixed_normal[μ, ie] = imag(χ_FL_mixed_normal) / π
+            ret_FL_mixed_mixed[μ, ie] = imag(χ_FL_mixed_mixed) / π
         end
+    end
+
+    ret_FL_cross = ret_FL_normal_mixed .+ ret_FL_mixed_normal
+    ret_FL_condensate = ret_FL_mixed_mixed .+ ret_FL_cross
+    ret_FL_total = ret_FL_normal .+ ret_FL_condensate
+
+    if return_components
+        return (
+            normal = ret_FL_normal,
+            mixed_mixed = ret_FL_mixed_mixed,
+            normal_mixed = ret_FL_normal_mixed,
+            mixed_normal = ret_FL_mixed_normal,
+            cross = ret_FL_cross,
+            condensate = ret_FL_condensate,
+            total = ret_FL_total,
+        )
     end
 
     return ret_FL_normal, ret_FL_condensate

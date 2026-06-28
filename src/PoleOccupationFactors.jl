@@ -1,5 +1,5 @@
 # ----------------------------------------------------------------------
-# Pole occupation and selected-mode helper functions
+# Pole occupation and DSSF transition factors
 # ----------------------------------------------------------------------
 
 @inline function _inverse_temperature(sbs::SchwingerBosonSystem)
@@ -8,40 +8,37 @@
 end
 
 """
-    _nB_T0(E)
+    _pole_bose(E, β)
 
-Zero-temperature Bose factor for BdG pole energies.
+Finite-temperature Bose factor for a bosonic BdG pole energy `E`.
 
-For positive poles, `nB(E) = 0`. For negative poles, `nB(E) = -1`.
+For positive poles, this is the usual Bose factor.
+
+For negative BdG poles, it satisfies
+
+    nB(-E) = -1 - nB(E),
+
+and therefore approaches `-1` as `T -> 0`.
+
+This function is used for both normal and selected poles. The selected sector is
+distinguished by its residue weight and collapsed momentum-sum factor, not by a
+different thermal occupation.
 """
-@inline function _nB_T0(E::Real)
+@inline function _pole_bose(E::Number, β::Real)
+    Er = real(E)
     atol = 1e-12
 
-    if E > atol
-        return 0.0
-    elseif E < -atol
-        return -1.0
-    else
-        throw(ArgumentError(
-            "Encountered a zero-energy pole in a normal bubble. " *
-            "Pass condensation data through `aux` so pinned condensate modes " *
-            "are removed, or treat the condensate contribution explicitly.",
-        ))
-    end
-end
-
-"""
-    _nB_BdG(E, β)
-
-Finite-temperature Bose factor for a BdG pole energy `E`.
-
-Negative BdG poles correctly approach `-1` as `T -> 0`.
-"""
-@inline function _nB_BdG(E::Number, β::Real)
-    Er = real(E)
-
     if !isfinite(β)
-        return _nB_T0(Er)
+        if Er > atol
+            return 0.0
+        elseif Er < -atol
+            return -1.0
+        else
+            throw(ArgumentError(
+                "Encountered a zero-energy BdG pole. " *
+                "Pass condensation data through `aux` and treat selected modes explicitly.",
+            ))
+        end
     end
 
     x = β * Er
@@ -57,14 +54,6 @@ Negative BdG poles correctly approach `-1` as `T -> 0`.
     else
         return 1 / expm1(x)
     end
-end
-
-@inline function _pole_bose(
-    E::Number,
-    β::Real,
-    force_T0_bose_factor::Bool,
-)
-    return force_T0_bose_factor ? _nB_T0(real(E)) : _nB_BdG(E, β)
 end
 
 """
@@ -87,43 +76,38 @@ sector, so the collapsed finite-size momentum sum contributes `L^2`.
 end
 
 """
-    _dssf_transition_factor(Em, En, β, force_T0_bose_factor)
+    _dssf_factor_from_occupations(ΔE, nb_m, nb_n, β)
 
-Finite-temperature transition factor for the normal-normal DSSF bubble.
+Convert the retarded-bubble occupation difference into the positive-frequency
+DSSF transition factor.
 
-The pole on the incoming line has BdG energy `Em`; the pole on the outgoing
-line has BdG energy `En`. The physical external energy is `En - Em`.
+Here `m` is the incoming Green-function line, `n` is the outgoing line, and
 
-When `force_T0_bose_factor = true`, this reduces to the legacy zero-temperature
-rule: only negative-pole to positive-pole transitions contribute.
+    ΔE = En - Em.
+
+The occupation difference appearing in the retarded bubble is
+
+    nb_n - nb_m.
 """
-@inline function _dssf_transition_factor(
-    Em::Number,
-    En::Number,
+@inline function _dssf_factor_from_occupations(
+    ΔE::Real,
+    nb_m::Real,
+    nb_n::Real,
     β::Real,
-    force_T0_bose_factor::Bool,
 )
-    ΔE = real(En - Em)
+    ΔE <= 1e-12 && return 0.0
 
-    if force_T0_bose_factor
-        nb_m = _nB_T0(real(Em))
-        nb_n = _nB_T0(real(En))
-        occdiff = nb_n - nb_m
-
-        return ΔE > 1e-12 ? occdiff : 0.0
-    end
-
-    nb_m = _nB_BdG(Em, β)
-    nb_n = _nB_BdG(En, β)
     occdiff = nb_n - nb_m
-
     iszero(occdiff) && return 0.0
+
+    if !isfinite(β)
+        return occdiff
+    end
 
     x = β * ΔE
 
     if abs(x) < 1e-10
-        nb_mid = _nB_BdG((Em + En) / 2, β)
-        return -nb_mid * (1 + nb_mid)
+        return 0.0
     elseif x > 700
         return occdiff
     elseif x < -700
@@ -134,30 +118,27 @@ rule: only negative-pole to positive-pole transitions contribute.
 end
 
 """
-    _dssf_condensate_transition_factor(ΔE, β, force_T0_bose_factor)
+    _dssf_transition_factor(Em, En, β)
 
-Transition factor for a mixed selected-normal DSSF contribution, where the
-selected line is treated as the condensed/soft line and the normal line carries
-positive physical energy `ΔE`.
+Finite-temperature transition factor for a DSSF bubble.
+
+Both `Em` and `En` are BdG pole energies. This same function is used for
+normal-normal and selected-normal transitions. Selected poles are distinguished
+by their residue weights and collapsed momentum-sum factors, not by a different
+thermal occupation.
 """
-@inline function _dssf_condensate_transition_factor(
-    ΔE::Real,
+@inline function _dssf_transition_factor(
+    Em::Number,
+    En::Number,
     β::Real,
-    force_T0_bose_factor::Bool,
 )
-    if force_T0_bose_factor
-        return ΔE > 1e-12 ? 1.0 : 0.0
-    end
+    nb_m = _pole_bose(Em, β)
+    nb_n = _pole_bose(En, β)
 
-    x = β * ΔE
-
-    if abs(x) < 1e-10
-        return 0.0
-    elseif x > 700
-        return 1.0
-    elseif x < -700
-        return 0.0
-    else
-        return 1 / (1 - exp(-x))
-    end
+    return _dssf_factor_from_occupations(
+        real(En - Em),
+        nb_m,
+        nb_n,
+        β,
+    )
 end

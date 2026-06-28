@@ -4,18 +4,21 @@
 
 """
     external_internal_bubble!(
-        Sβ, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sβ,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
         η,
         aux,
-        force_T0_bose_factor = false,
         include_condensate = true,
     )
 
 Fill `Sβ` with the retarded column external-internal bubble
-
-    S^{1+1;μ,R}_{β}(q,ω)
-
-for all column internal fields `β`.
+`S^{1+1;μ,R}_{β}(q,ω)` for all column internal fields `β`.
 
 Momentum conventions:
 
@@ -42,7 +45,6 @@ function external_internal_bubble!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
     include_condensate::Bool = true,
 )
     length(Sβ) == length(fields) ||
@@ -63,7 +65,6 @@ function external_internal_bubble!(
         μ;
         η = η,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     if include_condensate
@@ -78,7 +79,6 @@ function external_internal_bubble!(
             μ;
             η = η,
             aux = aux,
-            force_T0_bose_factor = force_T0_bose_factor,
         )
     end
 
@@ -87,25 +87,28 @@ end
 
 """
     external_internal_bubble_row!(
-        Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sα,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
         η,
         aux,
-        force_T0_bose_factor = false,
         include_condensate = true,
     )
 
 Fill `Sα` with the retarded row external-internal bubble
-
-    S^{†,1+1;μ,R}_{α}(q,ω)
-
-for all row labels `α`.
+`S^{†,1+1;μ,R}_{α}(q,ω)` for all row labels `α`.
 
 The stored field labels are the same labels used for the column basis. The
 row-side vertex is obtained by the row-column mapping
 
-    row :W    -> actual Wbar(q),
-    row :Wbar -> actual W(-q),
-    row :λ    -> actual λ(-q).
+- row `:W`    -> actual `Wbar(q)`,
+- row `:Wbar` -> actual `W(-q)`,
+- row `:λ`    -> actual `λ(-q)`.
 
 The dagger in the notation labels the row-side derivative vertex. It does not
 mean Hermitian conjugation.
@@ -125,7 +128,6 @@ function external_internal_bubble_row!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
     include_condensate::Bool = true,
 )
     length(Sα) == length(fields) ||
@@ -146,7 +148,6 @@ function external_internal_bubble_row!(
         μ;
         η = η,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     if include_condensate
@@ -161,7 +162,6 @@ function external_internal_bubble_row!(
             μ;
             η = η,
             aux = aux,
-            force_T0_bose_factor = force_T0_bose_factor,
         )
     end
 
@@ -170,10 +170,16 @@ end
 
 """
     external_internal_bubble_normal!(
-        Sβ, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sβ,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
         η,
         aux,
-        force_T0_bose_factor = false,
     )
 
 Add the normal-normal contribution to the column bubble `Sβ`.
@@ -190,8 +196,8 @@ This implements the Matsubara-summed expression
 The finite grid is the explicit momentum sum in this formula; no additional
 division by `length(kgrid)` is applied.
 
-The normal Green's functions are evaluated with `Green_SP_normal_residues`,
-so the selected condensed modes in `aux` are removed from the normal sector.
+The normal Green's functions are evaluated with `Green_SP_normal_residues`, so
+the selected condensed modes in `aux` are removed from the normal sector.
 """
 function external_internal_bubble_normal!(
     Sβ::AbstractVector{ComplexF64},
@@ -204,7 +210,6 @@ function external_internal_bubble_normal!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
     length(Sβ) == nϕ ||
@@ -218,14 +223,13 @@ function external_internal_bubble_normal!(
     end
 
     (; L) = sbs
+
     Nu = L^2
     Ns = 3Nu
-
     βtemp = _inverse_temperature(sbs)
     z = ω + im * η
 
     Uq = external_vertex(μ, q_ext)
-
     Vβ = zeros(ComplexF64, 12, 12)
 
     prefactor = -1 / (4 * sqrt(Ns * Nu))
@@ -245,13 +249,13 @@ function external_internal_bubble_normal!(
                 iszero(weights_k[m]) && continue
 
                 Em = ϵs_k[m]
-                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+                nb_m = _pole_bose(Em, βtemp)
 
                 for n in eachindex(ϵs_kq)
                     iszero(weights_kq[n]) && continue
 
                     En = ϵs_kq[n]
-                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                    nb_n = _pole_bose(En, βtemp)
 
                     occdiff = nb_n - nb_m
                     iszero(occdiff) && continue
@@ -259,8 +263,14 @@ function external_internal_bubble_normal!(
                     denom = z + Em - En
 
                     coherence = _residue_vertex_trace(
-                        Vkq, weights_kq, n, Vβ,
-                        Vk, weights_k, m, Uq,
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Vβ,
+                        Vk,
+                        weights_k,
+                        m,
+                        Uq,
                     )
 
                     accum += coherence * occdiff / denom
@@ -276,10 +286,16 @@ end
 
 """
     external_internal_bubble_row_normal!(
-        Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sα,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
         η,
         aux,
-        force_T0_bose_factor = false,
     )
 
 Add the normal-normal contribution to the row bubble `Sα`.
@@ -306,7 +322,6 @@ function external_internal_bubble_row_normal!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
     length(Sα) == nϕ ||
@@ -320,14 +335,13 @@ function external_internal_bubble_row_normal!(
     end
 
     (; L) = sbs
+
     Nu = L^2
     Ns = 3Nu
-
     βtemp = _inverse_temperature(sbs)
     z = ω + im * η
 
     Umq = external_vertex(μ, -q_ext)
-
     Vrow = zeros(ComplexF64, 12, 12)
 
     prefactor = -1 / (4 * sqrt(Ns * Nu))
@@ -347,13 +361,13 @@ function external_internal_bubble_row_normal!(
                 iszero(weights_k[m]) && continue
 
                 Em = ϵs_k[m]
-                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+                nb_m = _pole_bose(Em, βtemp)
 
                 for n in eachindex(ϵs_kq)
                     iszero(weights_kq[n]) && continue
 
                     En = ϵs_kq[n]
-                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                    nb_n = _pole_bose(En, βtemp)
 
                     occdiff = nb_n - nb_m
                     iszero(occdiff) && continue
@@ -361,8 +375,14 @@ function external_internal_bubble_row_normal!(
                     denom = z + Em - En
 
                     coherence = _residue_vertex_trace(
-                        Vk, weights_k, m, Vrow,
-                        Vkq, weights_kq, n, Umq,
+                        Vk,
+                        weights_k,
+                        m,
+                        Vrow,
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Umq,
                     )
 
                     accum += coherence * occdiff / denom
@@ -378,15 +398,25 @@ end
 
 """
     external_internal_bubble_condensate!(
-        Sβ, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sβ,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
         η,
         aux,
-        force_T0_bose_factor = false,
     )
 
 Add the mixed selected-normal pieces to the column external-internal bubble.
 
 The elastic selected-selected contribution is omitted.
+
+All BdG poles, normal and selected, use the same finite-temperature occupation
+factor `_pole_bose(E, β)`. The selected sector differs only through its residue
+weight and the branch-dependent collapsed momentum-sum factor.
 
 The branch-dependent collapsed momentum-sum factor is
 
@@ -412,7 +442,6 @@ function external_internal_bubble_condensate!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
 )
     isempty(aux.conden_band_indices) && return Sβ
 
@@ -424,8 +453,8 @@ function external_internal_bubble_condensate!(
     Nu > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
     (; L) = sbs
-    Ns = 3L^2
 
+    Ns = 3L^2
     βtemp = _inverse_temperature(sbs)
     z = ω + im * η
 
@@ -455,13 +484,13 @@ function external_internal_bubble_condensate!(
             iszero(weights_c[m]) && continue
 
             Em = ϵs_c[m]
-            nb_m = _nB_T0(real(Em))
+            nb_m = _pole_bose(Em, βtemp)
 
             for n in eachindex(ϵs_n)
                 iszero(weights_n[n]) && continue
 
                 En = ϵs_n[n]
-                nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                nb_n = _pole_bose(En, βtemp)
 
                 occdiff = nb_n - nb_m
                 iszero(occdiff) && continue
@@ -505,13 +534,13 @@ function external_internal_bubble_condensate!(
             iszero(weights_n[m]) && continue
 
             Em = ϵs_n[m]
-            nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+            nb_m = _pole_bose(Em, βtemp)
 
             for n in eachindex(ϵs_c)
                 iszero(weights_c[n]) && continue
 
                 En = ϵs_c[n]
-                nb_n = _nB_T0(real(En))
+                nb_n = _pole_bose(En, βtemp)
 
                 occdiff = nb_n - nb_m
                 iszero(occdiff) && continue
@@ -541,10 +570,16 @@ end
 
 """
     external_internal_bubble_row_condensate!(
-        Sα, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ;
+        Sα,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
         η,
         aux,
-        force_T0_bose_factor = false,
     )
 
 Add the mixed selected-normal pieces to the row external-internal bubble.
@@ -554,6 +589,10 @@ dagger labels the Gaussian row partner and does not denote Hermitian
 conjugation.
 
 The elastic selected-selected contribution is omitted.
+
+All BdG poles, normal and selected, use the same finite-temperature occupation
+factor `_pole_bose(E, β)`. The selected sector differs only through its residue
+weight and the branch-dependent collapsed momentum-sum factor.
 
 The branch-dependent collapsed momentum-sum factor is
 
@@ -575,7 +614,6 @@ function external_internal_bubble_row_condensate!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
 )
     isempty(aux.conden_band_indices) && return Sα
 
@@ -587,8 +625,8 @@ function external_internal_bubble_row_condensate!(
     Nu > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
     (; L) = sbs
-    Ns = 3L^2
 
+    Ns = 3L^2
     βtemp = _inverse_temperature(sbs)
     z = ω + im * η
 
@@ -618,13 +656,13 @@ function external_internal_bubble_row_condensate!(
             iszero(weights_c[m]) && continue
 
             Em = ϵs_c[m]
-            nb_m = _nB_T0(real(Em))
+            nb_m = _pole_bose(Em, βtemp)
 
             for n in eachindex(ϵs_n)
                 iszero(weights_n[n]) && continue
 
                 En = ϵs_n[n]
-                nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                nb_n = _pole_bose(En, βtemp)
 
                 occdiff = nb_n - nb_m
                 iszero(occdiff) && continue
@@ -668,13 +706,13 @@ function external_internal_bubble_row_condensate!(
             iszero(weights_n[m]) && continue
 
             Em = ϵs_n[m]
-            nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+            nb_m = _pole_bose(Em, βtemp)
 
             for n in eachindex(ϵs_c)
                 iszero(weights_c[n]) && continue
 
                 En = ϵs_c[n]
-                nb_n = _nB_T0(real(En))
+                nb_n = _pole_bose(En, βtemp)
 
                 occdiff = nb_n - nb_m
                 iszero(occdiff) && continue
@@ -704,10 +742,18 @@ end
 
 """
     external_internal_bubble_pair!(
-        Splus, Srow, sbs, fields, kgrid, q_ext, q_reshaped, ω, μ, ν;
+        Splus,
+        Srow,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ,
+        ν;
         η,
         aux,
-        force_T0_bose_factor = false,
         include_condensate = true,
     )
 
@@ -716,8 +762,8 @@ Compute the two external-internal bubbles needed for Fig. 1(b):
     Splus[β] = S^{1+1;μ,R}_{β}(q,ω),
     Srow[α]  = S^{†,1+1;ν,R}_{α}(q,ω).
 
-The second object is the row-side bubble in the same external sector `q`; it
-is not obtained by Hermitian conjugation.
+The second object is the row-side bubble in the same external sector `q`; it is
+not obtained by Hermitian conjugation.
 
 If `include_condensate=true`, the mixed normal-condensate and
 condensate-normal pieces are included using the condensed sector stored in
@@ -736,7 +782,6 @@ function external_internal_bubble_pair!(
     ν::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    force_T0_bose_factor::Bool = false,
     include_condensate::Bool = true,
 )
     external_internal_bubble!(
@@ -750,7 +795,6 @@ function external_internal_bubble_pair!(
         μ;
         η = η,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
         include_condensate = include_condensate,
     )
 
@@ -765,7 +809,6 @@ function external_internal_bubble_pair!(
         ν;
         η = η,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
         include_condensate = include_condensate,
     )
 

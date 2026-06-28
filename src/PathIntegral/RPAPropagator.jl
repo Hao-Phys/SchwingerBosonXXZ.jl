@@ -190,8 +190,7 @@ end
 # ----------------------------------------------------------------------
 
 """
-    polarization!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing,
-                  force_T0_bose_factor=false)
+    polarization!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
 
 Fill `Π` with the polarization operator at complex external frequency `z`.
 
@@ -206,6 +205,9 @@ the RPA kernel must use the complete bubble
 For `selection_kind === :finite_size_minimum`, this is only an algebraic split
 of ordinary finite-size poles. The selected poles are reinserted with weight
 one and with the same `1 / Nk` momentum normalization as the original bubble.
+
+All BdG poles, normal and selected, use the same finite-temperature occupation
+factor `_pole_bose(E, β)`.
 """
 function polarization!(
     Π::AbstractMatrix{ComplexF64},
@@ -216,7 +218,6 @@ function polarization!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, SpectralCondensationAux} = nothing,
-    force_T0_bose_factor::Bool = false,
 )
     fill!(Π, 0.0 + 0.0im)
 
@@ -229,7 +230,6 @@ function polarization!(
         z;
         Nflavor = Nflavor,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     polarization_condensate_normal!(
@@ -241,7 +241,6 @@ function polarization!(
         z;
         Nflavor = Nflavor,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     polarization_condensate_condensate!(
@@ -253,7 +252,6 @@ function polarization!(
         z;
         Nflavor = Nflavor,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     return Π
@@ -261,8 +259,7 @@ end
 
 """
     polarization_normal!(Π, sbs, fields, kgrid, q, z;
-                         Nflavor=2, aux=nothing,
-                         force_T0_bose_factor=false)
+                         Nflavor=2, aux=nothing)
 
 Add the normal-normal polarization contribution to `Π`.
 """
@@ -275,7 +272,6 @@ function polarization_normal!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, SpectralCondensationAux} = nothing,
-    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
     size(Π) == (nϕ, nϕ) ||
@@ -309,13 +305,13 @@ function polarization_normal!(
                     iszero(weights_k[m]) && continue
 
                     Em = ϵs_k[m]
-                    nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+                    nb_m = _pole_bose(Em, βtemp)
 
                     for n in eachindex(ϵs_kq)
                         iszero(weights_kq[n]) && continue
 
                         En = ϵs_kq[n]
-                        nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                        nb_n = _pole_bose(En, βtemp)
 
                         occdiff = nb_n - nb_m
                         iszero(occdiff) && continue
@@ -323,8 +319,14 @@ function polarization_normal!(
                         denom = z + Em - En
 
                         coherence = _residue_vertex_trace(
-                            Vkq, weights_kq, n, Vcol,
-                            Vk, weights_k, m, Vrow,
+                            Vkq,
+                            weights_kq,
+                            n,
+                            Vcol,
+                            Vk,
+                            weights_k,
+                            m,
+                            Vrow,
                         )
 
                         accum += coherence * occdiff / denom
@@ -344,7 +346,6 @@ end
         Π, sbs, fields, kgrid, q, z;
         Nflavor = 2,
         aux = nothing,
-        force_T0_bose_factor = false,
     )
 
 Add the mixed selected-normal pieces to the polarization operator,
@@ -353,6 +354,10 @@ Add the mixed selected-normal pieces to the polarization operator,
 
 The selected sector is specified by `SpectralCondensationAux` and is evaluated
 with `Green_SP_condensed_residues`.
+
+The selected pole uses the same finite-temperature BdG occupation as every
+other pole. The selected sector differs only through its residue weight and the
+branch-dependent collapsed momentum-sum factor.
 
 The branch-dependent collapsed momentum-sum factor is
 
@@ -376,7 +381,6 @@ function polarization_condensate_normal!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing,SpectralCondensationAux} = nothing,
-    force_T0_bose_factor::Bool = false,
 )
     aux === nothing && return Π
     isempty(aux.conden_band_indices) && return Π
@@ -420,13 +424,13 @@ function polarization_condensate_normal!(
                 iszero(weights_c[m]) && continue
 
                 Em = ϵs_c[m]
-                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+                nb_m = _pole_bose(Em, βtemp)
 
                 for n in eachindex(ϵs_n)
                     iszero(weights_n[n]) && continue
 
                     En = ϵs_n[n]
-                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                    nb_n = _pole_bose(En, βtemp)
 
                     occdiff = nb_n - nb_m
                     iszero(occdiff) && continue
@@ -474,13 +478,13 @@ function polarization_condensate_normal!(
                 iszero(weights_n[m]) && continue
 
                 Em = ϵs_n[m]
-                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+                nb_m = _pole_bose(Em, βtemp)
 
                 for n in eachindex(ϵs_c)
                     iszero(weights_c[n]) && continue
 
                     En = ϵs_c[n]
-                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                    nb_n = _pole_bose(En, βtemp)
 
                     occdiff = nb_n - nb_m
                     iszero(occdiff) && continue
@@ -514,7 +518,6 @@ end
         Π, sbs, fields, kgrid, q, z;
         Nflavor = 2,
         aux = nothing,
-        force_T0_bose_factor = false,
     )
 
 Add the selected-selected `G_c G_c` piece to the polarization operator.
@@ -527,6 +530,10 @@ to exactly reconstruct the original finite-size bubble.
 
 For `:pinned`, this is the selected-sector counterpart of the macroscopic
 condensate-condensate polarization.
+
+All selected poles use the same finite-temperature BdG occupation as ordinary
+poles. The selected-sector distinction is only the residue weight and collapsed
+momentum-sum factor.
 
 The branch-dependent prefactor is
 
@@ -548,7 +555,6 @@ function polarization_condensate_condensate!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing,SpectralCondensationAux} = nothing,
-    force_T0_bose_factor::Bool = false,
 )
     aux === nothing && return Π
     isempty(aux.conden_band_indices) && return Π
@@ -592,13 +598,13 @@ function polarization_condensate_condensate!(
                 iszero(weights_k[m]) && continue
 
                 Em = ϵs_k[m]
-                nb_m = _pole_bose(Em, βtemp, force_T0_bose_factor)
+                nb_m = _pole_bose(Em, βtemp)
 
                 for n in eachindex(ϵs_kq)
                     iszero(weights_kq[n]) && continue
 
                     En = ϵs_kq[n]
-                    nb_n = _pole_bose(En, βtemp, force_T0_bose_factor)
+                    nb_n = _pole_bose(En, βtemp)
 
                     occdiff = nb_n - nb_m
                     iszero(occdiff) && continue
@@ -652,10 +658,7 @@ function rpa_kernel!(
 end
 
 """
-    rpa_kernel!(K, sbs, fields, kgrid, q, z;
-                Nflavor=2,
-                aux=nothing,
-                force_T0_bose_factor=false)
+    rpa_kernel!(K, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
 
 Compute the inverse RPA propagator kernel
 
@@ -670,7 +673,6 @@ function rpa_kernel!(
     z::Number;
     Nflavor::Real = 2,
     aux::Union{Nothing, SpectralCondensationAux} = nothing,
-    force_T0_bose_factor::Bool = false,
 )
     nϕ = length(fields)
     size(K) == (nϕ, nϕ) ||
@@ -690,7 +692,6 @@ function rpa_kernel!(
         z;
         Nflavor = Nflavor,
         aux = aux,
-        force_T0_bose_factor = force_T0_bose_factor,
     )
 
     return rpa_kernel!(K, Π0, Π)
