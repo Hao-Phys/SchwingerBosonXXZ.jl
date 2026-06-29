@@ -105,28 +105,26 @@ end
         aux::Union{Nothing,SpectralCondensationAux} = nothing,
     )
 
-Compute the diagonal components of the mean-field dynamical spin structure
-factor from the Matsubara-summed BdG Green-function residue formula.
+Compute the diagonal components of the dynamical spin structure factor at the
+mean-field level using the canonical Bogoliubov formalism.
 
 Returns `ret_normal, ret_condensate`, where both arrays have size
 `3 × length(energies)`.
 
-The normal contribution uses the full BdG pole-pair sum. Therefore, at finite
-temperature, it includes both the pair-creation channels and the thermal
-scattering channels required by detailed balance.
+The normal contribution keeps the usual two-spinon finite-size sum, except that
+selected soft-mode lines are reassigned to `ret_condensate` when
+`include_condensation = true`.
 
-If `include_condensation = true`, selected soft-mode poles are split out using
-`SpectralCondensationAux`. If `aux === nothing`, it is constructed by
-`spectral_condensation_aux(sbs)`.
+The selected sector is specified by `SpectralCondensationAux`. If `aux === nothing`,
+it is constructed by `spectral_condensation_aux(sbs)`.
 
-The selected-pole convention is the same as the saddle-point Green function and
-the single-particle density matrix:
+The selected-pole weight convention is the same as in the path-integral
+saddle-point Green function:
 
     finite_size_minimum: selected pole weight = 1
     pinned:              selected pole weight = 1 + ξ
 
-Thus the selected pole is removed from the normal sector and reinserted through
-the selected sector with the total selected-pole weight.
+where `ξ` is the extra soft-min occupation beyond the ordinary BdG pole.
 
 The branch-dependent collapsed-sum factor is handled by
 `_condensate_sum_factor(aux, L)`:
@@ -134,10 +132,22 @@ The branch-dependent collapsed-sum factor is handled by
     finite_size_minimum: 1
     pinned:              L^2
 
-For selected-normal terms, the finite selected soft-mode energy is kept:
+The selected-normal part includes both finite-soft-gap positive-frequency
+branches:
 
-    Orientation 1: ΔE = E_normal(k + q) - E_selected(k)
-    Orientation 2: ΔE = E_selected(k + q) - E_normal(k)
+1. condensate creation branch:
+
+       omega = E_normal + epsilon_selected,
+
+   with thermal factor `(1 + nB(E_normal)) * (1 + nB(epsilon_selected))`;
+
+2. finite-temperature selected-mode absorption branch:
+
+       omega = E_normal - epsilon_selected,
+
+   with thermal factor `(1 + nB(E_normal)) * nB(epsilon_selected)`.
+
+The absorption branch vanishes at T = 0.
 
 The purely selected-selected elastic contribution is not included.
 
@@ -158,26 +168,7 @@ function dssf_mean_field(
     aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     num_energies = length(energies)
-
-    ret_normal = zeros(Float64, 3, num_energies)
-    ret_condensate = zeros(Float64, 3, num_energies)
-
-    (; L) = sbs
-
-    Ns = 3L^2
-    βtemp = _inverse_temperature(sbs)
-
-    q_ext = Vec3(q[1], q[2], q[3])
-    q_reshaped = to_reshaped_rlu(q_ext)
-
-    Uq = [external_vertex(μ, q_ext) for μ in 1:3]
-    Umq = [external_vertex(μ, -q_ext) for μ in 1:3]
-
-    k_grid = Vec3[]
-
-    for i in 1:L, j in 1:L
-        push!(k_grid, Vec3([(i - 1) / L, (j - 1) / L, 0.0]))
-    end
+    num_bands = 6
 
     spectral_aux = if include_condensation
         aux === nothing ? spectral_condensation_aux(sbs) : aux
@@ -185,211 +176,244 @@ function dssf_mean_field(
         nothing
     end
 
+    H1 = zeros(ComplexF64, 2num_bands, 2num_bands)
+    V1 = zeros(ComplexF64, 2num_bands, 2num_bands)
+
+    H2 = zeros(ComplexF64, 2num_bands, 2num_bands)
+    V2 = zeros(ComplexF64, 2num_bands, 2num_bands)
+
+    Avec_pref = zeros(ComplexF64, 3)
+    Avec = zeros(ComplexF64, 3, num_bands, num_bands)
+
+    q_global = recipvecs_origin * q
+
+    for α in 1:3
+        rα = global_position(α)
+        Avec_pref[α] = exp(-im * dot(q_global, rα))
+    end
+
+    q_reshaped = to_reshaped_rlu(q)
+
+    (; L) = sbs
+
+    k_reshapes = [
+        Vec3(i / L, j / L, 0.0)
+        for i in 0:L-1, j in 0:L-1, _ in 1:1
+    ]
+
+    ret_normal = zeros(Float64, 3, num_energies)
+    ret_condensate = zeros(Float64, 3, num_energies)
+
+    βtemp = _inverse_temperature(sbs)
+
     has_condensate =
         spectral_aux !== nothing &&
         !isempty(spectral_aux.conden_band_indices)
 
-    # ------------------------------------------------------------------
-    # Normal-normal contribution.
-    #
-    # This is the full Matsubara-summed BdG pole-pair expression. At finite
-    # temperature, it includes both pair-creation and thermal scattering
-    # channels.
-    # ------------------------------------------------------------------
+    condensed_band_mask = falses(num_bands)
 
-    for k in k_grid
-        kq = k + q_reshaped
+    qc = Vec3(0.0, 0.0, 0.0)
+    condensate_sum_factor = 0.0
 
-        ϵs_k, Vk, weights_k = Green_SP_normal_residues(
-            sbs,
-            k,
-            spectral_aux,
-        )
+    if has_condensate
+        qc = _spectral_condensation_momentum(spectral_aux, L)
+        condensate_sum_factor = _condensate_sum_factor(spectral_aux, L)
 
-        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(
-            sbs,
-            kq,
-            spectral_aux,
-        )
+        for band in spectral_aux.conden_band_indices
+            if 1 <= band <= num_bands
+                condensed_band_mask[band] = true
+            end
+        end
+    end
 
-        for m in eachindex(ϵs_k)
-            iszero(weights_k[m]) && continue
+    for k_reshaped in k_reshapes
+        qpk_reshaped = q_reshaped + k_reshaped
+        minus_k_reshaped = -k_reshaped
 
-            Em = ϵs_k[m]
+        # Canonical line 1: q + k
+        # Canonical line 2: -k
 
-            for n in eachindex(ϵs_kq)
-                iszero(weights_kq[n]) && continue
+        dynamical_matrix!(H1, sbs, qpk_reshaped)
+        dynamical_matrix!(H2, sbs, minus_k_reshaped)
 
-                En = ϵs_kq[n]
-                ΔE = real(En - Em)
+        disp1 = bogoliubov!(V1, H1)
+        disp2 = bogoliubov!(V2, H2)
 
-                transition_factor = _dssf_transition_factor(
-                    Em,
-                    En,
-                    βtemp,
-                )
+        Avec .= 0.0
 
-                iszero(transition_factor) && continue
+        for band1 in 1:num_bands
+            v1 = reshape(view(V1, :, band1), 2, 3, 2)
 
-                for μ in 1:3
-                    trace_weight = _residue_vertex_trace(
-                        Vkq,
-                        weights_kq,
-                        n,
-                        Umq[μ],
-                        Vk,
-                        weights_k,
-                        m,
-                        Uq[μ],
-                    )
+            for band2 in 1:num_bands
+                v2 = reshape(view(V2, :, band2), 2, 3, 2)
 
-                    weight =
-                        -real(trace_weight) * transition_factor / (8Ns)
+                for α in 1:3, μ in 1:3, σ in 1:2, σ′ in 1:2
+                    Avec[μ, band1, band2] +=
+                        0.5 *
+                        Avec_pref[α] *
+                        σs[μ][σ, σ′] *
+                        (
+                            v1[σ, α, 2] * v2[σ′, α, 1] +
+                            v1[σ′, α, 1] * v2[σ, α, 2]
+                        )
+                end
+            end
+        end
+
+        line1_condensed_sector =
+            has_condensate && _same_momentum_mod1(qpk_reshaped, qc)
+
+        line2_condensed_sector =
+            has_condensate && _same_momentum_mod1(minus_k_reshaped, qc)
+
+        for μ in 1:3
+            for band1 in 1:num_bands, band2 in 1:num_bands
+                band1_condensed =
+                    line1_condensed_sector && condensed_band_mask[band1]
+
+                band2_condensed =
+                    line2_condensed_sector && condensed_band_mask[band2]
+
+                matrix_weight = abs2(Avec[μ, band1, band2])
+
+                if band1_condensed && band2_condensed
+                    # Purely selected-selected elastic piece.
+                    # Keep the previous behavior and do not include it.
+                    continue
+                elseif band1_condensed
+                    # --------------------------------------------------
+                    # Selected line is q + k.
+                    # Normal line is -k.
+                    #
+                    # Finite-soft-gap branches:
+                    #
+                    #     E_normal + epsilon_selected,
+                    #     E_normal - epsilon_selected.
+                    # --------------------------------------------------
+
+                    epsilon_selected = real(disp1[band1])
+                    E_normal = real(disp2[band2])
+
+                    epsilon_selected > 0 || continue
+                    E_normal > 0 || continue
+
+                    n_selected = _pole_bose(epsilon_selected, βtemp)
+                    n_normal = _pole_bose(E_normal, βtemp)
+
+                    condensate_weight =
+                        spectral_aux.condensate_weights[band1] *
+                        condensate_sum_factor
+
+                    base_weight =
+                        condensate_weight *
+                        matrix_weight
+
+                    # Main condensate creation branch:
+                    #
+                    #     omega = E + epsilon.
+                    main_factor =
+                        (1 + n_normal) * (1 + n_selected)
+
+                    ΔE_main = E_normal + epsilon_selected
+
+                    for (ie, energy) in enumerate(energies)
+                        ret_condensate[μ, ie] +=
+                            base_weight *
+                            main_factor *
+                            lorentzian(energy - ΔE_main, Γ)
+                    end
+
+                    # Finite-temperature selected-mode absorption branch:
+                    #
+                    #     omega = E - epsilon.
+                    #
+                    # This vanishes at T = 0 because n_selected = 0.
+                    absorption_factor =
+                        (1 + n_normal) * n_selected
+
+                    ΔE_absorption = E_normal - epsilon_selected
+
+                    if ΔE_absorption > 0 && !iszero(absorption_factor)
+                        for (ie, energy) in enumerate(energies)
+                            ret_condensate[μ, ie] +=
+                                base_weight *
+                                absorption_factor *
+                                lorentzian(energy - ΔE_absorption, Γ)
+                        end
+                    end
+                elseif band2_condensed
+                    # --------------------------------------------------
+                    # Selected line is -k.
+                    # Normal line is q + k.
+                    #
+                    # Finite-soft-gap branches:
+                    #
+                    #     E_normal + epsilon_selected,
+                    #     E_normal - epsilon_selected.
+                    # --------------------------------------------------
+
+                    E_normal = real(disp1[band1])
+                    epsilon_selected = real(disp2[band2])
+
+                    epsilon_selected > 0 || continue
+                    E_normal > 0 || continue
+
+                    n_normal = _pole_bose(E_normal, βtemp)
+                    n_selected = _pole_bose(epsilon_selected, βtemp)
+
+                    condensate_weight =
+                        spectral_aux.condensate_weights[band2] *
+                        condensate_sum_factor
+
+                    base_weight =
+                        condensate_weight *
+                        matrix_weight
+
+                    # Main condensate creation branch:
+                    #
+                    #     omega = E + epsilon.
+                    main_factor =
+                        (1 + n_normal) * (1 + n_selected)
+
+                    ΔE_main = E_normal + epsilon_selected
+
+                    for (ie, energy) in enumerate(energies)
+                        ret_condensate[μ, ie] +=
+                            base_weight *
+                            main_factor *
+                            lorentzian(energy - ΔE_main, Γ)
+                    end
+
+                    # Finite-temperature selected-mode absorption branch:
+                    #
+                    #     omega = E - epsilon.
+                    absorption_factor =
+                        (1 + n_normal) * n_selected
+
+                    ΔE_absorption = E_normal - epsilon_selected
+
+                    if ΔE_absorption > 0 && !iszero(absorption_factor)
+                        for (ie, energy) in enumerate(energies)
+                            ret_condensate[μ, ie] +=
+                                base_weight *
+                                absorption_factor *
+                                lorentzian(energy - ΔE_absorption, Γ)
+                        end
+                    end
+                else
+                    ΔE = real(disp1[band1] + disp2[band2])
 
                     for (ie, energy) in enumerate(energies)
                         ret_normal[μ, ie] +=
-                            weight * lorentzian(energy - ΔE, Γ)
+                            matrix_weight * lorentzian(energy - ΔE, Γ)
                     end
                 end
             end
         end
     end
 
-    has_condensate || return ret_normal, ret_condensate
-
-    # ------------------------------------------------------------------
-    # Selected-normal contribution.
-    #
-    # This uses the same selected-sector convention as the saddle-point
-    # Green function:
-    #
-    #     finite_size_minimum: selected weight = 1
-    #     pinned:              selected weight = 1 + ξ
-    #
-    # The selected pole is removed from the normal sector and reinserted here
-    # through `Green_SP_condensed_residues`.
-    # ------------------------------------------------------------------
-
-    qc = _spectral_condensation_momentum(spectral_aux, L)
-    condensate_sum_factor = _condensate_sum_factor(spectral_aux, L)
-
-    # --------------------------------------------------------------
-    # Orientation 1:
-    #
-    #     G_n(k + q) G_c(k),
-    #
-    # with k = qc. The selected pole is on the second line.
-    # --------------------------------------------------------------
-
-    k = qc
-    kq = qc + q_reshaped
-
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, k, spectral_aux)
-    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kq, spectral_aux)
-
-    for a in 1:6
-        lcond_neg = 6 + a
-        iszero(weights_c[lcond_neg]) && continue
-
-        Em = ϵs_c[lcond_neg]
-
-        for b in 1:6
-            lpos = b
-            iszero(weights_n[lpos]) && continue
-
-            En = ϵs_n[lpos]
-            ΔE = real(En - Em)
-
-            transition_factor = _dssf_transition_factor(
-                Em,
-                En,
-                βtemp,
-            )
-
-            iszero(transition_factor) && continue
-
-            for μ in 1:3
-                trace_weight = _residue_vertex_trace(
-                    Vn,
-                    weights_n,
-                    lpos,
-                    Umq[μ],
-                    Vc,
-                    weights_c,
-                    lcond_neg,
-                    Uq[μ],
-                )
-
-                weight = transition_factor * (
-                    -condensate_sum_factor * real(trace_weight) / (8Ns)
-                )
-
-                for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] +=
-                        weight * lorentzian(energy - ΔE, Γ)
-                end
-            end
-        end
-    end
-
-    # --------------------------------------------------------------
-    # Orientation 2:
-    #
-    #     G_c(k + q) G_n(k),
-    #
-    # with k + q = qc. The selected pole is on the first line.
-    # --------------------------------------------------------------
-
-    k = qc - q_reshaped
-    kq = qc
-
-    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, k, spectral_aux)
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kq, spectral_aux)
-
-    for a in 1:6
-        lneg = 6 + a
-        iszero(weights_n[lneg]) && continue
-
-        Em = ϵs_n[lneg]
-
-        for b in 1:6
-            lcond_pos = b
-            iszero(weights_c[lcond_pos]) && continue
-
-            En = ϵs_c[lcond_pos]
-            ΔE = real(En - Em)
-
-            transition_factor = _dssf_transition_factor(
-                Em,
-                En,
-                βtemp,
-            )
-
-            iszero(transition_factor) && continue
-
-            for μ in 1:3
-                trace_weight = _residue_vertex_trace(
-                    Vc,
-                    weights_c,
-                    lcond_pos,
-                    Umq[μ],
-                    Vn,
-                    weights_n,
-                    lneg,
-                    Uq[μ],
-                )
-
-                weight = transition_factor * (
-                    -condensate_sum_factor * real(trace_weight) / (8Ns)
-                )
-
-                for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] +=
-                        weight * lorentzian(energy - ΔE, Γ)
-                end
-            end
-        end
-    end
+    ret_normal ./= 6L^2
+    ret_condensate ./= 6L^2
 
     return ret_normal, ret_condensate
 end

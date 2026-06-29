@@ -32,14 +32,25 @@ Thus a finite-size selected pole is only split out as an ordinary BdG pole,
 while an active pinned soft-min pole receives the macroscopic collapsed-sum
 enhancement.
 
-For the selected-normal terms, the transition energy keeps the finite selected
-soft-mode energy:
+For the selected-normal terms, this implementation includes both finite-soft-gap
+positive-frequency branches:
 
-    Orientation 1: ΔE = E_normal(k + q) - E_selected(k)
-    Orientation 2: ΔE = E_selected(k + q) - E_normal(k)
+1. the condensate creation branch
 
-This is important for finite-size selected modes whose soft-mode energy is not
-exactly zero.
+       negative selected pole -> positive normal pole,
+       omega = E + epsilon,
+
+   and its momentum-reversed partner;
+
+2. the finite-temperature selected-mode absorption branch
+
+       positive selected pole -> positive normal pole,
+       omega = E - epsilon,
+
+   and its momentum-reversed partner.
+
+The second branch has zero weight at T = 0 through `_dssf_transition_factor`,
+because the positive selected pole is then unoccupied.
 
 The purely elastic selected-selected contribution is not included.
 """
@@ -149,6 +160,14 @@ function dssf_SP(
     ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, k, aux)
     ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kq, aux)
 
+    # ----------------------------------------------------------
+    # Condensate creation branch:
+    #
+    #     E_selected = -epsilon,
+    #     E_normal   = +E,
+    #     omega      = E + epsilon.
+    # ----------------------------------------------------------
+
     for a in 1:6
         lcond_neg = 6 + a
         iszero(weights_c[lcond_neg]) && continue
@@ -161,6 +180,7 @@ function dssf_SP(
 
             En = ϵs_n[lpos]
             ΔE = real(En - Em)
+            ΔE > 0 || continue
 
             transition_factor = _dssf_transition_factor(
                 Em,
@@ -194,6 +214,63 @@ function dssf_SP(
         end
     end
 
+    # ----------------------------------------------------------
+    # Finite-T selected absorption branch:
+    #
+    #     E_selected = +epsilon,
+    #     E_normal   = +E,
+    #     omega      = E - epsilon.
+    #
+    # This branch vanishes at T = 0 because the positive selected
+    # pole is not thermally occupied.
+    # ----------------------------------------------------------
+
+    for a in 1:6
+        lcond_pos = a
+        iszero(weights_c[lcond_pos]) && continue
+
+        Em = ϵs_c[lcond_pos]
+
+        for b in 1:6
+            lpos = b
+            iszero(weights_n[lpos]) && continue
+
+            En = ϵs_n[lpos]
+            ΔE = real(En - Em)
+            ΔE > 0 || continue
+
+            transition_factor = _dssf_transition_factor(
+                Em,
+                En,
+                βtemp,
+            )
+
+            iszero(transition_factor) && continue
+
+            for μ in 1:3
+                trace_weight = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    lpos,
+                    Umq[μ],
+                    Vc,
+                    weights_c,
+                    lcond_pos,
+                    Uq[μ],
+                )
+
+                weight = transition_factor * (
+                    -condensate_sum_factor * real(trace_weight) / (8Ns)
+                )
+
+                for (ie, energy) in enumerate(energies)
+                    ret_condensate[μ, ie] +=
+                        weight * lorentzian(energy - ΔE, Γ)
+                end
+            end
+        end
+    end
+
     # --------------------------------------------------------------
     # Orientation 2:
     #
@@ -208,6 +285,14 @@ function dssf_SP(
     ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, k, aux)
     ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kq, aux)
 
+    # ----------------------------------------------------------
+    # Condensate creation branch:
+    #
+    #     E_normal   = -E,
+    #     E_selected = +epsilon,
+    #     omega      = E + epsilon.
+    # ----------------------------------------------------------
+
     for a in 1:6
         lneg = 6 + a
         iszero(weights_n[lneg]) && continue
@@ -220,6 +305,7 @@ function dssf_SP(
 
             En = ϵs_c[lcond_pos]
             ΔE = real(En - Em)
+            ΔE > 0 || continue
 
             transition_factor = _dssf_transition_factor(
                 Em,
@@ -234,6 +320,63 @@ function dssf_SP(
                     Vc,
                     weights_c,
                     lcond_pos,
+                    Umq[μ],
+                    Vn,
+                    weights_n,
+                    lneg,
+                    Uq[μ],
+                )
+
+                weight = transition_factor * (
+                    -condensate_sum_factor * real(trace_weight) / (8Ns)
+                )
+
+                for (ie, energy) in enumerate(energies)
+                    ret_condensate[μ, ie] +=
+                        weight * lorentzian(energy - ΔE, Γ)
+                end
+            end
+        end
+    end
+
+    # ----------------------------------------------------------
+    # Finite-T selected absorption branch:
+    #
+    #     E_normal   = -E,
+    #     E_selected = -epsilon,
+    #     omega      = E - epsilon.
+    #
+    # This is the row/momentum partner of the positive-selected to
+    # positive-normal absorption process above.
+    # ----------------------------------------------------------
+
+    for a in 1:6
+        lneg = 6 + a
+        iszero(weights_n[lneg]) && continue
+
+        Em = ϵs_n[lneg]
+
+        for b in 1:6
+            lcond_neg = 6 + b
+            iszero(weights_c[lcond_neg]) && continue
+
+            En = ϵs_c[lcond_neg]
+            ΔE = real(En - Em)
+            ΔE > 0 || continue
+
+            transition_factor = _dssf_transition_factor(
+                Em,
+                En,
+                βtemp,
+            )
+
+            iszero(transition_factor) && continue
+
+            for μ in 1:3
+                trace_weight = _residue_vertex_trace(
+                    Vc,
+                    weights_c,
+                    lcond_neg,
                     Umq[μ],
                     Vn,
                     weights_n,
