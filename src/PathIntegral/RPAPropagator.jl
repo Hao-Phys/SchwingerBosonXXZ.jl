@@ -185,6 +185,24 @@ function Pi0!(
     return Π0
 end
 
+@inline function _selected_line_sum_factor_for_rpa(
+    aux::SpectralCondensationAux,
+    L::Int,
+)
+    raw_factor = _condensate_sum_factor(aux, L)
+
+    aux.selection_kind === :pinned || return raw_factor
+
+    selected_weights = aux.condensate_weights[aux.conden_band_indices]
+    total_weight = maximum(selected_weights)
+
+    total_weight > 0 || return raw_factor
+
+    xi = max(total_weight - 1.0, 0.0)
+
+    return (1.0 + raw_factor * xi) / total_weight
+end
+
 # ----------------------------------------------------------------------
 # Polarization operator
 # ----------------------------------------------------------------------
@@ -400,7 +418,8 @@ function polarization_condensate_normal!(
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    prefactor = _condensate_sum_factor(aux, L) / (2 * Nflavor * Nk)
+    # prefactor = _condensate_sum_factor(aux, L) / (2 * Nflavor * Nk)
+    prefactor = _selected_line_sum_factor_for_rpa(aux, L) / (2 * Nflavor * Nk)
 
     # ------------------------------------------------------------------
     # Selected pole on the k line, normal propagator on the k + q line.
@@ -583,8 +602,10 @@ function polarization_condensate_condensate!(
     ϵs_k, Vk, weights_k = Green_SP_condensed_residues(sbs, kc, aux)
     ϵs_kq, Vkq, weights_kq = Green_SP_condensed_residues(sbs, kq, aux)
 
-    condensate_sum_factor = _condensate_sum_factor(aux, L)
-    prefactor = condensate_sum_factor^2 / (2 * Nflavor * Nk)
+    # condensate_sum_factor = _condensate_sum_factor(aux, L)
+    # prefactor = condensate_sum_factor^2 / (2 * Nflavor * Nk)
+    selected_line_sum_factor = _selected_line_sum_factor_for_rpa(aux, L)
+    prefactor = selected_line_sum_factor^2 / (2 * Nflavor * Nk)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kc, kq)
@@ -695,4 +716,258 @@ function rpa_kernel!(
     )
 
     return rpa_kernel!(K, Π0, Π)
+end
+
+# ----------------------------------------------------------------------
+# Gauge-mode vectors
+# ----------------------------------------------------------------------
+
+@inline function _gauge_eta(X::Symbol)
+    if X === :A || X === :D
+        return 1.0
+    elseif X === :B || X === :C
+        return -1.0
+    else
+        throw(ArgumentError("Unknown HS channel `$X`."))
+    end
+end
+
+@inline function _canonical_mean_field_value(
+    sbs::SchwingerBosonSystem,
+    X::Symbol,
+    a::Int,
+)
+    @boundscheck @assert 1 <= a <= 3
+
+    if X === :A
+        return sbs.mean_fields[a]
+    elseif X === :B
+        return sbs.mean_fields[a + 3]
+    elseif X === :C
+        return sbs.mean_fields[a + 6]
+    elseif X === :D
+        return sbs.mean_fields[a + 9]
+    else
+        throw(ArgumentError("Unknown HS channel `$X`."))
+    end
+end
+
+@inline function _hs_saddle_value_for_gauge_mode(
+    sbs::SchwingerBosonSystem,
+    kind::Symbol,
+    X::Symbol,
+    a::Int,
+)
+    mf = _canonical_mean_field_value(sbs, X, a)
+
+    if kind === :W
+        # Internal-vertex HS convention:
+        #
+        #   W^A =  A,   W^D =  D,
+        #   W^B = -B,   W^C = -C.
+        #
+        # The minus signs for B and C are required because their HS couplings
+        # have negative sign, while the canonical BdG matrix is written in
+        # terms of the positive mean-field variables B and C.
+        if X === :A || X === :D
+            return mf
+        elseif X === :B || X === :C
+            return -mf
+        else
+            throw(ArgumentError("Unknown HS channel `$X`."))
+        end
+
+    elseif kind === :Wbar
+        # The barred saddle field is the actual Wbar field appearing in the
+        # row/partner blocks. In the current canonical BdG construction this
+        # corresponds to conj(A), conj(B), conj(C), conj(D), without the extra
+        # B/C minus sign used for the unbarred W field.
+        return conj(mf)
+
+    else
+        throw(ArgumentError("Expected `:W` or `:Wbar`; got `$kind`."))
+    end
+end
+
+"""
+    gauge_mode_vector!(φD, sbs, fields, q, z, θ)
+
+Fill `φD` with the gauge tangent vector in the column-sector basis
+
+    ϕ(q) = { W(q), Wbar(-q), λ(q) }.
+
+`θ` is a length-3 vector of sublattice gauge angles. The frequency `z`
+must be the same external frequency used in the RPA kernel. In Matsubara
+notation, `z = im * ωq`; after analytic continuation, use
+`z = ω + im * η`.
+"""
+function gauge_mode_vector!(
+    φD::AbstractVector{ComplexF64},
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q::Vec3,
+    z::Number,
+    θ::AbstractVector,
+)
+    nϕ = length(fields)
+
+    length(φD) == nϕ ||
+        throw(DimensionMismatch("`φD` must have length $(nϕ)."))
+
+    length(θ) == 3 ||
+        throw(DimensionMismatch("`θ` must have length 3."))
+
+    fill!(φD, 0.0 + 0.0im)
+
+    for (i, field) in pairs(fields)
+        if field.kind === :λ
+            # Gauge transformation:
+            #
+            #     λ_a(q) -> λ_a(q) + δλ_a(q),
+            #     δλ_a(q) = iω_q θ_a(q).
+            #
+            # Since the RPA kernel is evaluated at external frequency `z`,
+            # use the same frequency variable here.
+            φD[i] = ComplexF64(z * θ[field.a])
+
+        elseif field.kind === :W || field.kind === :Wbar
+            X = field.channel
+            a = field.a
+            ap = mod1(a + 1, 3)
+
+            ηX = _gauge_eta(X)
+            phase = _bond_phase(a, field.δ, q)
+
+            θbond = θ[a] + ηX * phase * θ[ap]
+            Wsp = _hs_saddle_value_for_gauge_mode(sbs, field.kind, X, a)
+
+            if field.kind === :W
+                φD[i] = im * Wsp * θbond
+            else
+                # The sector component labeled :Wbar is Wbar(-q).
+                φD[i] = -im * Wsp * θbond
+            end
+
+        else
+            throw(ArgumentError("Unknown internal-field kind `$(field.kind)`."))
+        end
+    end
+
+    return φD
+end
+
+"""
+    gauge_mode_vectors(sbs, fields, q, z)
+
+Return a matrix `ΦD` whose three columns are the three gauge tangent vectors
+generated by
+
+    θ = (1,0,0), (0,1,0), (0,0,1).
+"""
+function gauge_mode_vectors(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q::Vec3,
+    z::Number,
+)
+    nϕ = length(fields)
+    ΦD = zeros(ComplexF64, nϕ, 3)
+    θ = zeros(ComplexF64, 3)
+
+    for aθ in 1:3
+        fill!(θ, 0.0 + 0.0im)
+        θ[aθ] = 1.0 + 0.0im
+
+        gauge_mode_vector!(
+            view(ΦD, :, aθ),
+            sbs,
+            fields,
+            q,
+            z,
+            θ,
+        )
+    end
+
+    return ΦD
+end
+
+"""
+    apply_rpa_kernel_to_gauge_modes(
+        sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing
+    )
+
+Construct the RPA kernel
+
+    K(q,z) = Π0 - Π(q,z),
+
+construct the three gauge vectors, and return
+
+    K, ΦD, R
+
+where
+
+    R = K * ΦD.
+"""
+function apply_rpa_kernel_to_gauge_modes(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q::Vec3,
+    z::Number;
+    Nflavor::Real = 2,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
+)
+    nϕ = length(fields)
+
+    K = zeros(ComplexF64, nϕ, nϕ)
+
+    rpa_kernel!(
+        K,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
+        Nflavor = Nflavor,
+        aux = aux,
+    )
+
+    ΦD = gauge_mode_vectors(sbs, fields, q, z)
+    R = K * ΦD
+
+    return K, ΦD, R
+end
+
+"""
+    gauge_mode_residuals(K, ΦD, R)
+
+Return absolute and relative residuals for the three right gauge vectors.
+"""
+function gauge_mode_residuals(
+    K::AbstractMatrix{ComplexF64},
+    ΦD::AbstractMatrix{ComplexF64},
+    R::AbstractMatrix{ComplexF64},
+)
+    size(ΦD, 2) == 3 ||
+        throw(DimensionMismatch("`ΦD` must have three columns."))
+
+    size(R, 2) == 3 ||
+        throw(DimensionMismatch("`R` must have three columns."))
+
+    abs_res = zeros(Float64, 3)
+    rel_res = zeros(Float64, 3)
+    φ_norms = zeros(Float64, 3)
+
+    K_norm = norm(K)
+
+    for aθ in 1:3
+        φ = view(ΦD, :, aθ)
+        r = view(R, :, aθ)
+
+        φ_norms[aθ] = norm(φ)
+        abs_res[aθ] = norm(r)
+        rel_res[aθ] = norm(r) / max(K_norm * φ_norms[aθ], eps(Float64))
+    end
+
+    return abs_res, rel_res, φ_norms
 end
