@@ -67,5 +67,18 @@ function solve_self_consistent_mean_fields_condensed!(sbs::SchwingerBosonSystem,
     end
     best_mean_fields[13:15] = sbs.mean_fields[13:15]
     set_mean_fields!(sbs, best_mean_fields)
+
+    μ0 = copy(real(sbs.mean_fields[13:15]))
+    aux = CondensationAux(0.0, 0.0, nothing, 0.0, 0)
+
+    optimize_μ0!(
+        sbs,
+        μ0,
+        aux;
+        options = options_μ,
+        tol,
+        max_iters,
+    )
+
     return ret.residual_norm
 end

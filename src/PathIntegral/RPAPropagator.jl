@@ -30,6 +30,7 @@ struct InternalField
     δ::Int
 end
 
+
 """
     internal_field_basis()
 
@@ -63,6 +64,7 @@ function internal_field_basis()
 
     return fields
 end
+
 
 """
     internal_vertices!(V, sbs, field::InternalField, k, p)
@@ -98,6 +100,7 @@ function internal_vertices!(
         throw(ArgumentError("Unknown internal-field kind `$(field.kind)`."))
     end
 end
+
 
 """
     row_internal_vertices!(V, sbs, field::InternalField, k, p)
@@ -152,6 +155,7 @@ function row_internal_vertices!(
     end
 end
 
+
 # ----------------------------------------------------------------------
 # Bare auxiliary-field kernel Π0
 # ----------------------------------------------------------------------
@@ -170,8 +174,11 @@ function Pi0!(
     fields::AbstractVector{InternalField},
 )
     nϕ = length(fields)
+
     size(Π0) == (nϕ, nϕ) ||
-        throw(DimensionMismatch("`Π0` must have size ($(nϕ), $(nϕ))."))
+        throw(DimensionMismatch(
+            "`Π0` must have size ($(nϕ), $(nϕ)).",
+        ))
 
     fill!(Π0, 0.0 + 0.0im)
 
@@ -185,47 +192,157 @@ function Pi0!(
     return Π0
 end
 
-@inline function _selected_line_sum_factor_for_rpa(
-    aux::SpectralCondensationAux,
-    L::Int,
+
+# ----------------------------------------------------------------------
+# Selected-sector helpers
+# ----------------------------------------------------------------------
+
+"""
+    _full_sp_residues(sbs, q)
+
+Return the complete unit-residue BdG spectral data at momentum `q`.
+No selected bands are removed.
+"""
+function _full_sp_residues(
+    sbs::SchwingerBosonSystem,
+    q::Vec3,
 )
-    raw_factor = _condensate_sum_factor(aux, L)
+    H = zeros(ComplexF64, 12, 12)
+    V = similar(H)
 
-    aux.selection_kind === :pinned || return raw_factor
+    dynamical_matrix!(H, sbs, q)
 
-    selected_weights = aux.condensate_weights[aux.conden_band_indices]
-    total_weight = maximum(selected_weights)
+    ϵs = try
+        bogoliubov!(V, H)
+    catch
+        error("BdG spectrum is unstable at q = $q.")
+    end
 
-    total_weight > 0 || return raw_factor
+    weights = ones(Float64, length(ϵs))
 
-    xi = max(total_weight - 1.0, 0.0)
-
-    return (1.0 + raw_factor * xi) / total_weight
+    return ϵs, V, weights
 end
+
+
+"""
+    _selected_unit_residues(sbs, q, aux)
+
+Return the selected BdG sector with unit pole weights.
+
+This reconstructs the ordinary saddle-point Green's-function contribution.
+The enhanced occupation `ξ` is not included here.
+"""
+function _selected_unit_residues(
+    sbs::SchwingerBosonSystem,
+    q::Vec3,
+    aux::SpectralCondensationAux,
+)
+    ϵs, V, stored_weights =
+        Green_SP_condensed_residues(sbs, q, aux)
+
+    weights = zeros(Float64, length(stored_weights))
+
+    for l in eachindex(weights)
+        if !iszero(stored_weights[l])
+            weights[l] = 1.0
+        end
+    end
+
+    return ϵs, V, weights
+end
+
+
+"""
+    _active_positive_weights(ϵs, aux)
+
+Return weights containing only the active positive-energy selected modes.
+
+The nonzero value is the additional enhanced occupation
+
+    ξᵢ = total_weightᵢ - 1.
+
+Negative-energy Nambu partners are not independently included in the outer
+active-mode sum.
+"""
+function _active_positive_weights(
+    ϵs::AbstractVector,
+    aux::SpectralCondensationAux,
+)
+    weights = zeros(Float64, length(ϵs))
+
+    aux.selection_kind === :pinned || return weights
+
+    for l in aux.conden_band_indices
+        1 <= l <= length(ϵs) || continue
+        ϵs[l] > 0 || continue
+
+        total_weight = aux.condensate_weights[l]
+        ξ = max(total_weight - 1.0, 0.0)
+
+        weights[l] = ξ
+    end
+
+    return weights
+end
+
+
+"""
+    _active_positive_mask(ϵs, aux)
+
+Return a Boolean mask for the full active positive-energy subspace.
+
+For a degenerate active multiplet, the entire active subspace must be removed
+from the intermediate-state sum when the intermediate momentum coincides with
+the condensate momentum.
+"""
+function _active_positive_mask(
+    ϵs::AbstractVector,
+    aux::SpectralCondensationAux,
+)
+    mask = falses(length(ϵs))
+
+    aux.selection_kind === :pinned || return mask
+
+    for l in aux.conden_band_indices
+        1 <= l <= length(ϵs) || continue
+        ϵs[l] > 0 || continue
+
+        ξ = max(aux.condensate_weights[l] - 1.0, 0.0)
+        iszero(ξ) && continue
+
+        mask[l] = true
+    end
+
+    return mask
+end
+
 
 # ----------------------------------------------------------------------
 # Polarization operator
 # ----------------------------------------------------------------------
 
 """
-    polarization!(Π, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
+    polarization!(
+        Π,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
+        Nflavor = 2,
+        aux = nothing,
+    )
 
-Fill `Π` with the polarization operator at complex external frequency `z`.
+Fill `Π` with the ordinary unit-residue saddle-point polarization.
 
-With the split
+When a selected sector is present, the Green's function is split algebraically
+as
 
-    G = G_normal + G_condensed,
+    G_SP = G_normal + G_selected,
 
-the RPA kernel must use the complete bubble
-
-    Π = Π_nn + Π_cn + Π_nc + Π_cc.
-
-For `selection_kind === :finite_size_minimum`, this is only an algebraic split
-of ordinary finite-size poles. The selected poles are reinserted with weight
-one and with the same `1 / Nk` momentum normalization as the original bubble.
-
-All BdG poles, normal and selected, use the same finite-temperature occupation
-factor `_pole_bose(E, β)`.
+but every selected pole is reconstructed with unit residue. The enhanced
+occupation `ξ` is not included in `Π`; it is added separately to the inverse
+RPA kernel by `active_constraint_kernel!`.
 """
 function polarization!(
     Π::AbstractMatrix{ComplexF64},
@@ -235,7 +352,7 @@ function polarization!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, SpectralCondensationAux} = nothing,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     fill!(Π, 0.0 + 0.0im)
 
@@ -275,11 +392,20 @@ function polarization!(
     return Π
 end
 
-"""
-    polarization_normal!(Π, sbs, fields, kgrid, q, z;
-                         Nflavor=2, aux=nothing)
 
-Add the normal-normal polarization contribution to `Π`.
+"""
+    polarization_normal!(
+        Π,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
+        Nflavor = 2,
+        aux = nothing,
+    )
+
+Add the normal-normal ordinary saddle-point polarization.
 """
 function polarization_normal!(
     Π::AbstractMatrix{ComplexF64},
@@ -289,11 +415,14 @@ function polarization_normal!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, SpectralCondensationAux} = nothing,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     nϕ = length(fields)
+
     size(Π) == (nϕ, nϕ) ||
-        throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
+        throw(DimensionMismatch(
+            "`Π` must have size ($(nϕ), $(nϕ)).",
+        ))
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
@@ -308,8 +437,19 @@ function polarization_normal!(
     for k in kgrid
         kq = k + q
 
-        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
-        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+        ϵs_k, Vk, weights_k =
+            if aux === nothing
+                _full_sp_residues(sbs, k)
+            else
+                Green_SP_normal_residues(sbs, k, aux)
+            end
+
+        ϵs_kq, Vkq, weights_kq =
+            if aux === nothing
+                _full_sp_residues(sbs, kq)
+            else
+                Green_SP_normal_residues(sbs, kq, aux)
+            end
 
         for (iα, α) in pairs(fields)
             row_internal_vertices!(Vrow, sbs, α, k, kq)
@@ -359,36 +499,27 @@ function polarization_normal!(
     return Π
 end
 
+
 """
     polarization_condensate_normal!(
-        Π, sbs, fields, kgrid, q, z;
+        Π,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
         Nflavor = 2,
         aux = nothing,
     )
 
-Add the mixed selected-normal pieces to the polarization operator,
+Reconstruct the ordinary mixed selected-normal saddle-point polarization,
 
-    G_c(k) G_n(k + q) + G_n(k) G_c(k + q).
+    G_selected G_normal + G_normal G_selected,
 
-The selected sector is specified by `SpectralCondensationAux` and is evaluated
-with `Green_SP_condensed_residues`.
-
-The selected pole uses the same finite-temperature BdG occupation as every
-other pole. The selected sector differs only through its residue weight and the
-branch-dependent collapsed momentum-sum factor.
-
-The branch-dependent collapsed momentum-sum factor is
-
-    finite_size_minimum: 1
-    pinned:              L^2
-
-implemented through `_condensate_sum_factor(aux, L)`. Therefore the prefactor is
-
-    _condensate_sum_factor(aux, L) / (2 * Nflavor * Nk).
-
-For `:finite_size_minimum`, this gives the same normalization as the original
-finite-size momentum sum. For `:pinned`, this gives the macroscopic selected-line
+using unit selected-pole weights and the ordinary `1 / Nk` momentum
 normalization.
+
+No enhanced occupation `ξ` is included here.
 """
 function polarization_condensate_normal!(
     Π::AbstractMatrix{ComplexF64},
@@ -404,32 +535,31 @@ function polarization_condensate_normal!(
     isempty(aux.conden_band_indices) && return Π
 
     nϕ = length(fields)
+
     size(Π) == (nϕ, nϕ) ||
-        throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
+        throw(DimensionMismatch(
+            "`Π` must have size ($(nϕ), $(nϕ)).",
+        ))
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
-    (; L) = sbs
-
-    qc = _spectral_condensation_momentum(aux, L)
+    qc = _spectral_condensation_momentum(aux, sbs.L)
     βtemp = _inverse_temperature(sbs)
 
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    # prefactor = _condensate_sum_factor(aux, L) / (2 * Nflavor * Nk)
-    prefactor = _selected_line_sum_factor_for_rpa(aux, L) / (2 * Nflavor * Nk)
-
-    # ------------------------------------------------------------------
-    # Selected pole on the k line, normal propagator on the k + q line.
-    # ------------------------------------------------------------------
+    prefactor = 1 / (2 * Nflavor * Nk)
 
     kc = qc
     kn = qc + q
 
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
-    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+    ϵs_c, Vc, weights_c =
+        _selected_unit_residues(sbs, kc, aux)
+
+    ϵs_n, Vn, weights_n =
+        Green_SP_normal_residues(sbs, kn, aux)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kc, kn)
@@ -475,15 +605,14 @@ function polarization_condensate_normal!(
         end
     end
 
-    # ------------------------------------------------------------------
-    # Normal propagator on the k line, selected pole on the k + q line.
-    # ------------------------------------------------------------------
-
     kn = qc - q
     kc = qc
 
-    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_n, Vn, weights_n =
+        Green_SP_normal_residues(sbs, kn, aux)
+
+    ϵs_c, Vc, weights_c =
+        _selected_unit_residues(sbs, kc, aux)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kn, kc)
@@ -532,38 +661,24 @@ function polarization_condensate_normal!(
     return Π
 end
 
+
 """
     polarization_condensate_condensate!(
-        Π, sbs, fields, kgrid, q, z;
+        Π,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
         Nflavor = 2,
         aux = nothing,
     )
 
-Add the selected-selected `G_c G_c` piece to the polarization operator.
+Reconstruct the ordinary selected-selected saddle-point polarization using
+unit selected-pole weights.
 
-For `:finite_size_minimum`, this piece is required for the split
-
-    G_full = G_normal + G_condensed
-
-to exactly reconstruct the original finite-size bubble.
-
-For `:pinned`, this is the selected-sector counterpart of the macroscopic
-condensate-condensate polarization.
-
-All selected poles use the same finite-temperature BdG occupation as ordinary
-poles. The selected-sector distinction is only the residue weight and collapsed
-momentum-sum factor.
-
-The branch-dependent prefactor is
-
-    _condensate_sum_factor(aux, L)^2 / (2 * Nflavor * Nk).
-
-Thus:
-
-    finite_size_minimum: 1 / (2 * Nflavor * Nk)
-    pinned:              Nk / (2 * Nflavor)
-
-assuming the standard `Nk = L^2` grid.
+This contribution is nonzero only when the external momentum maps the
+selected momentum back to itself. No enhanced occupation `ξ` is included.
 """
 function polarization_condensate_condensate!(
     Π::AbstractMatrix{ComplexF64},
@@ -579,33 +694,34 @@ function polarization_condensate_condensate!(
     isempty(aux.conden_band_indices) && return Π
 
     nϕ = length(fields)
+
     size(Π) == (nϕ, nϕ) ||
-        throw(DimensionMismatch("`Π` must have size ($(nϕ), $(nϕ))."))
+        throw(DimensionMismatch(
+            "`Π` must have size ($(nϕ), $(nϕ)).",
+        ))
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
-    (; L) = sbs
-
-    βtemp = _inverse_temperature(sbs)
-
-    qc = _spectral_condensation_momentum(aux, L)
+    qc = _spectral_condensation_momentum(aux, sbs.L)
 
     kc = qc
     kq = qc + q
 
     _same_momentum_mod1(kq, qc) || return Π
 
+    βtemp = _inverse_temperature(sbs)
+
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    ϵs_k, Vk, weights_k = Green_SP_condensed_residues(sbs, kc, aux)
-    ϵs_kq, Vkq, weights_kq = Green_SP_condensed_residues(sbs, kq, aux)
+    ϵs_k, Vk, weights_k =
+        _selected_unit_residues(sbs, kc, aux)
 
-    # condensate_sum_factor = _condensate_sum_factor(aux, L)
-    # prefactor = condensate_sum_factor^2 / (2 * Nflavor * Nk)
-    selected_line_sum_factor = _selected_line_sum_factor_for_rpa(aux, L)
-    prefactor = selected_line_sum_factor^2 / (2 * Nflavor * Nk)
+    ϵs_kq, Vkq, weights_kq =
+        _selected_unit_residues(sbs, kq, aux)
+
+    prefactor = 1 / (2 * Nflavor * Nk)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kc, kq)
@@ -654,6 +770,214 @@ function polarization_condensate_condensate!(
     return Π
 end
 
+
+# ----------------------------------------------------------------------
+# Active-constraint curvature
+# ----------------------------------------------------------------------
+
+"""
+    active_constraint_kernel!(
+        K,
+        sbs,
+        fields,
+        q,
+        z;
+        Nflavor = 2,
+        aux = nothing,
+    )
+
+Add the fixed-`ξ` soft-minimum contribution to the inverse RPA kernel.
+
+The code-level spectral curvature accumulated below has the convention
+
+    curvature = -Nflavor * Γξ,
+
+so the kernel update is
+
+    K += curvature / Nflavor.
+
+Only active positive-energy selected modes occur in the outer sum. The
+intermediate state runs over the complete BdG spectrum, except that the full
+active positive-energy subspace is excluded whenever the intermediate momentum
+coincides with the condensate momentum.
+
+No Bose occupation factors occur in this contribution.
+"""
+function active_constraint_kernel!(
+    K::AbstractMatrix{ComplexF64},
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q::Vec3,
+    z::Number;
+    Nflavor::Real = 2,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
+)
+    aux === nothing && return K
+    aux.selection_kind === :pinned || return K
+    isempty(aux.conden_band_indices) && return K
+
+    nϕ = length(fields)
+
+    size(K) == (nϕ, nϕ) ||
+        throw(DimensionMismatch(
+            "`K` must have size ($(nϕ), $(nϕ)).",
+        ))
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+
+    Vrow = zeros(ComplexF64, 12, 12)
+    Vcol = zeros(ComplexF64, 12, 12)
+
+    kc = qc
+
+    ϵs_c, Vc, _ =
+        _selected_unit_residues(sbs, kc, aux)
+
+    active_weights =
+        _active_positive_weights(ϵs_c, aux)
+
+    active_mask =
+        _active_positive_mask(ϵs_c, aux)
+
+    unit_active_weights =
+        zeros(Float64, length(ϵs_c))
+
+    # ------------------------------------------------------------------
+    # First ordering:
+    #
+    #     active mode at qc
+    #         -> intermediate mode at qc + q
+    #         -> active mode at qc
+    #
+    # Denominator:
+    #
+    #     Ei - En + z
+    # ------------------------------------------------------------------
+
+    kn = qc + q
+
+    ϵs_n, Vn, weights_n =
+        _full_sp_residues(sbs, kn)
+
+    exclude_active_intermediate =
+        _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kn)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kn, kc)
+
+            curvature = 0.0 + 0.0im
+
+            for i in eachindex(ϵs_c)
+                ξi = active_weights[i]
+                iszero(ξi) && continue
+
+                Ei = ϵs_c[i]
+
+                fill!(unit_active_weights, 0.0)
+                unit_active_weights[i] = 1.0
+
+                for n in eachindex(ϵs_n)
+                    if exclude_active_intermediate &&
+                       n <= length(active_mask) &&
+                       active_mask[n]
+                        continue
+                    end
+
+                    En = ϵs_n[n]
+                    denom = Ei - En + z
+
+                    coherence = _residue_vertex_trace(
+                        Vn,
+                        weights_n,
+                        n,
+                        Vcol,
+                        Vc,
+                        unit_active_weights,
+                        i,
+                        Vrow,
+                    )
+
+                    curvature += ξi * coherence / denom
+                end
+            end
+
+            K[iα, iβ] += curvature / Nflavor
+        end
+    end
+
+    # ------------------------------------------------------------------
+    # Second ordering:
+    #
+    #     active mode at qc
+    #         -> intermediate mode at qc - q
+    #         -> active mode at qc
+    #
+    # Denominator:
+    #
+    #     Ei - Em - z
+    # ------------------------------------------------------------------
+
+    kn = qc - q
+
+    ϵs_n, Vn, weights_n =
+        _full_sp_residues(sbs, kn)
+
+    exclude_active_intermediate =
+        _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kn, kc)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kc, kn)
+
+            curvature = 0.0 + 0.0im
+
+            for i in eachindex(ϵs_c)
+                ξi = active_weights[i]
+                iszero(ξi) && continue
+
+                Ei = ϵs_c[i]
+
+                fill!(unit_active_weights, 0.0)
+                unit_active_weights[i] = 1.0
+
+                for m in eachindex(ϵs_n)
+                    if exclude_active_intermediate &&
+                       m <= length(active_mask) &&
+                       active_mask[m]
+                        continue
+                    end
+
+                    Em = ϵs_n[m]
+                    denom = Ei - Em - z
+
+                    coherence = _residue_vertex_trace(
+                        Vc,
+                        unit_active_weights,
+                        i,
+                        Vcol,
+                        Vn,
+                        weights_n,
+                        m,
+                        Vrow,
+                    )
+
+                    curvature += ξi * coherence / denom
+                end
+            end
+
+            K[iα, iβ] += curvature / Nflavor
+        end
+    end
+
+    return K
+end
+
+
 # ----------------------------------------------------------------------
 # RPA kernel
 # ----------------------------------------------------------------------
@@ -661,7 +985,7 @@ end
 """
     rpa_kernel!(K, Π0, Π)
 
-Fill `K` with the inverse RPA propagator kernel
+Fill `K` with
 
     K = Π0 - Π.
 """
@@ -671,19 +995,34 @@ function rpa_kernel!(
     Π::AbstractMatrix{ComplexF64},
 )
     size(K) == size(Π0) == size(Π) ||
-        throw(DimensionMismatch("`K`, `Π0`, and `Π` must have the same size."))
+        throw(DimensionMismatch(
+            "`K`, `Π0`, and `Π` must have the same size.",
+        ))
 
     @. K = Π0 - Π
 
     return K
 end
 
+
 """
-    rpa_kernel!(K, sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing)
+    rpa_kernel!(
+        K,
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
+        Nflavor = 2,
+        aux = nothing,
+    )
 
-Compute the inverse RPA propagator kernel
+Compute the fixed-`ξ` inverse RPA kernel
 
-    K(q,z) = Π0 - Π(q,z).
+    K(q,z) = Π0 - Πordinary(q,z) + Γξ(q,z),
+
+where `Πordinary` uses only unit BdG pole residues and `Γξ` is the
+soft-minimum active-constraint contribution.
 """
 function rpa_kernel!(
     K::AbstractMatrix{ComplexF64},
@@ -693,11 +1032,14 @@ function rpa_kernel!(
     q::Vec3,
     z::Number;
     Nflavor::Real = 2,
-    aux::Union{Nothing, SpectralCondensationAux} = nothing,
+    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     nϕ = length(fields)
+
     size(K) == (nϕ, nϕ) ||
-        throw(DimensionMismatch("`K` must have size ($(nϕ), $(nϕ))."))
+        throw(DimensionMismatch(
+            "`K` must have size ($(nϕ), $(nϕ)).",
+        ))
 
     Π0 = similar(K)
     Π = similar(K)
@@ -715,7 +1057,19 @@ function rpa_kernel!(
         aux = aux,
     )
 
-    return rpa_kernel!(K, Π0, Π)
+    rpa_kernel!(K, Π0, Π)
+
+    active_constraint_kernel!(
+        K,
+        sbs,
+        fields,
+        q,
+        z;
+        Nflavor = Nflavor,
+        aux = aux,
+    )
+
+    return K
 end
 
 # ----------------------------------------------------------------------
@@ -728,9 +1082,12 @@ end
     elseif X === :B || X === :C
         return -1.0
     else
-        throw(ArgumentError("Unknown HS channel `$X`."))
+        throw(ArgumentError(
+            "Unknown HS channel `$X`.",
+        ))
     end
 end
+
 
 @inline function _canonical_mean_field_value(
     sbs::SchwingerBosonSystem,
@@ -748,7 +1105,9 @@ end
     elseif X === :D
         return sbs.mean_fields[a + 9]
     else
-        throw(ArgumentError("Unknown HS channel `$X`."))
+        throw(ArgumentError(
+            "Unknown HS channel `$X`.",
+        ))
     end
 end
 
@@ -758,49 +1117,34 @@ end
     X::Symbol,
     a::Int,
 )
-    mf = _canonical_mean_field_value(sbs, X, a)
+    mf = _canonical_mean_field_value(
+        sbs,
+        X,
+        a,
+    )
 
     if kind === :W
-        # Internal-vertex HS convention:
-        #
-        #   W^A =  A,   W^D =  D,
-        #   W^B = -B,   W^C = -C.
-        #
-        # The minus signs for B and C are required because their HS couplings
-        # have negative sign, while the canonical BdG matrix is written in
-        # terms of the positive mean-field variables B and C.
         if X === :A || X === :D
             return mf
         elseif X === :B || X === :C
             return -mf
         else
-            throw(ArgumentError("Unknown HS channel `$X`."))
+            throw(ArgumentError(
+                "Unknown HS channel `$X`.",
+            ))
         end
 
     elseif kind === :Wbar
-        # The barred saddle field is the actual Wbar field appearing in the
-        # row/partner blocks. In the current canonical BdG construction this
-        # corresponds to conj(A), conj(B), conj(C), conj(D), without the extra
-        # B/C minus sign used for the unbarred W field.
         return conj(mf)
 
     else
-        throw(ArgumentError("Expected `:W` or `:Wbar`; got `$kind`."))
+        throw(ArgumentError(
+            "Expected `:W` or `:Wbar`; got `$kind`.",
+        ))
     end
 end
 
-"""
-    gauge_mode_vector!(φD, sbs, fields, q, z, θ)
 
-Fill `φD` with the gauge tangent vector in the column-sector basis
-
-    ϕ(q) = { W(q), Wbar(-q), λ(q) }.
-
-`θ` is a length-3 vector of sublattice gauge angles. The frequency `z`
-must be the same external frequency used in the RPA kernel. In Matsubara
-notation, `z = im * ωq`; after analytic continuation, use
-`z = ω + im * η`.
-"""
 function gauge_mode_vector!(
     φD::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
@@ -812,23 +1156,22 @@ function gauge_mode_vector!(
     nϕ = length(fields)
 
     length(φD) == nϕ ||
-        throw(DimensionMismatch("`φD` must have length $(nϕ)."))
+        throw(DimensionMismatch(
+            "`φD` must have length $(nϕ).",
+        ))
 
     length(θ) == 3 ||
-        throw(DimensionMismatch("`θ` must have length 3."))
+        throw(DimensionMismatch(
+            "`θ` must have length 3.",
+        ))
 
     fill!(φD, 0.0 + 0.0im)
 
     for (i, field) in pairs(fields)
         if field.kind === :λ
-            # Gauge transformation:
-            #
-            #     λ_a(q) -> λ_a(q) + δλ_a(q),
-            #     δλ_a(q) = iω_q θ_a(q).
-            #
-            # Since the RPA kernel is evaluated at external frequency `z`,
-            # use the same frequency variable here.
-            φD[i] = ComplexF64(z * θ[field.a])
+            φD[i] = ComplexF64(
+                z * θ[field.a],
+            )
 
         elseif field.kind === :W || field.kind === :Wbar
             X = field.channel
@@ -836,20 +1179,40 @@ function gauge_mode_vector!(
             ap = mod1(a + 1, 3)
 
             ηX = _gauge_eta(X)
-            phase = _bond_phase(a, field.δ, q)
 
-            θbond = θ[a] + ηX * phase * θ[ap]
-            Wsp = _hs_saddle_value_for_gauge_mode(sbs, field.kind, X, a)
+            phase = _bond_phase(
+                a,
+                field.δ,
+                q,
+            )
+
+            θbond =
+                θ[a] +
+                ηX * phase * θ[ap]
+
+            Wsp = _hs_saddle_value_for_gauge_mode(
+                sbs,
+                field.kind,
+                X,
+                a,
+            )
 
             if field.kind === :W
-                φD[i] = im * Wsp * θbond
+                φD[i] =
+                    im *
+                    Wsp *
+                    θbond
             else
-                # The sector component labeled :Wbar is Wbar(-q).
-                φD[i] = -im * Wsp * θbond
+                φD[i] =
+                    -im *
+                    Wsp *
+                    θbond
             end
 
         else
-            throw(ArgumentError("Unknown internal-field kind `$(field.kind)`."))
+            throw(ArgumentError(
+                "Unknown internal-field kind `$(field.kind)`.",
+            ))
         end
     end
 
@@ -859,10 +1222,11 @@ end
 """
     gauge_mode_vectors(sbs, fields, q, z)
 
-Return a matrix `ΦD` whose three columns are the three gauge tangent vectors
-generated by
+Return a matrix whose three columns are the gauge tangent vectors generated by
 
-    θ = (1,0,0), (0,1,0), (0,0,1).
+    θ = (1,0,0),
+    θ = (0,1,0),
+    θ = (0,0,1).
 """
 function gauge_mode_vectors(
     sbs::SchwingerBosonSystem,
@@ -871,11 +1235,24 @@ function gauge_mode_vectors(
     z::Number,
 )
     nϕ = length(fields)
-    ΦD = zeros(ComplexF64, nϕ, 3)
-    θ = zeros(ComplexF64, 3)
+
+    ΦD = zeros(
+        ComplexF64,
+        nϕ,
+        3,
+    )
+
+    θ = zeros(
+        ComplexF64,
+        3,
+    )
 
     for aθ in 1:3
-        fill!(θ, 0.0 + 0.0im)
+        fill!(
+            θ,
+            0.0 + 0.0im,
+        )
+
         θ[aθ] = 1.0 + 0.0im
 
         gauge_mode_vector!(
@@ -891,18 +1268,21 @@ function gauge_mode_vectors(
     return ΦD
 end
 
+
 """
     apply_rpa_kernel_to_gauge_modes(
-        sbs, fields, kgrid, q, z; Nflavor=2, aux=nothing
+        sbs,
+        fields,
+        kgrid,
+        q,
+        z;
+        Nflavor = 2,
+        aux = nothing,
     )
 
-Construct the RPA kernel
+Construct the RPA kernel and the three gauge tangent vectors, and return
 
-    K(q,z) = Π0 - Π(q,z),
-
-construct the three gauge vectors, and return
-
-    K, ΦD, R
+    K, ΦD, R,
 
 where
 
@@ -919,7 +1299,11 @@ function apply_rpa_kernel_to_gauge_modes(
 )
     nϕ = length(fields)
 
-    K = zeros(ComplexF64, nϕ, nϕ)
+    K = zeros(
+        ComplexF64,
+        nϕ,
+        nϕ,
+    )
 
     rpa_kernel!(
         K,
@@ -932,16 +1316,24 @@ function apply_rpa_kernel_to_gauge_modes(
         aux = aux,
     )
 
-    ΦD = gauge_mode_vectors(sbs, fields, q, z)
+    ΦD = gauge_mode_vectors(
+        sbs,
+        fields,
+        q,
+        z,
+    )
+
     R = K * ΦD
 
     return K, ΦD, R
 end
 
+
 """
     gauge_mode_residuals(K, ΦD, R)
 
-Return absolute and relative residuals for the three right gauge vectors.
+Return the absolute residual, relative residual, and gauge-vector norm for
+each of the three gauge directions.
 """
 function gauge_mode_residuals(
     K::AbstractMatrix{ComplexF64},
@@ -949,10 +1341,24 @@ function gauge_mode_residuals(
     R::AbstractMatrix{ComplexF64},
 )
     size(ΦD, 2) == 3 ||
-        throw(DimensionMismatch("`ΦD` must have three columns."))
+        throw(DimensionMismatch(
+            "`ΦD` must have three columns.",
+        ))
 
     size(R, 2) == 3 ||
-        throw(DimensionMismatch("`R` must have three columns."))
+        throw(DimensionMismatch(
+            "`R` must have three columns.",
+        ))
+
+    size(K, 2) == size(ΦD, 1) ||
+        throw(DimensionMismatch(
+            "`K` and `ΦD` have incompatible dimensions.",
+        ))
+
+    size(K, 1) == size(R, 1) ||
+        throw(DimensionMismatch(
+            "`K` and `R` have incompatible dimensions.",
+        ))
 
     abs_res = zeros(Float64, 3)
     rel_res = zeros(Float64, 3)
@@ -961,12 +1367,27 @@ function gauge_mode_residuals(
     K_norm = norm(K)
 
     for aθ in 1:3
-        φ = view(ΦD, :, aθ)
-        r = view(R, :, aθ)
+        φ = view(
+            ΦD,
+            :,
+            aθ,
+        )
+
+        r = view(
+            R,
+            :,
+            aθ,
+        )
 
         φ_norms[aθ] = norm(φ)
         abs_res[aθ] = norm(r)
-        rel_res[aθ] = norm(r) / max(K_norm * φ_norms[aθ], eps(Float64))
+
+        rel_res[aθ] =
+            abs_res[aθ] /
+            max(
+                K_norm * φ_norms[aθ],
+                eps(Float64),
+            )
     end
 
     return abs_res, rel_res, φ_norms
