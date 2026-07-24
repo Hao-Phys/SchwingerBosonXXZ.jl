@@ -93,7 +93,7 @@ function internal_vertices!(
 
     V .= 0.0 + 0.0im
 
-    κ, s = _κ_s(sbs, X, δ)
+    κ, s = _κ_s(sbs, X, a)
 
     if X === :B
         _internal_B!(V, kind, κ, s, a, δ, k, p)
@@ -114,14 +114,14 @@ end
 # Couplings from Eqs. (25), (26), and (44)
 # ----------------------------------------------------------------------
 
-@inline function _κ_s(sbs::SchwingerBosonSystem, X::Symbol, δ::Int)
+@inline function _κ_s(sbs::SchwingerBosonSystem, X::Symbol, a::Int)
     (; J, Δ, α_dcoups) = sbs
 
     Jp = J * (Δ + 1) / 2
     Jm = J * (Δ - 1) / 2
 
-    α1 = α_dcoups[1, δ]
-    α2 = α_dcoups[2, δ]
+    α1 = α_dcoups[1, a]
+    α2 = α_dcoups[2, a]
 
     g = if X === :A
         (1 + α1) * Jp

@@ -184,7 +184,7 @@ function Pi0!(
 
     for (i, field) in pairs(fields)
         if field.kind === :W || field.kind === :Wbar
-            κ, _ = _κ_s(sbs, field.channel, field.δ)
+            κ, _ = _κ_s(sbs, field.channel, field.a)
             Π0[i, i] += κ / 2
         end
     end
