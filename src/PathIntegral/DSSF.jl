@@ -9,50 +9,23 @@
         aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
     )
 
-Compute the saddle-point dynamical spin structure factor using the
-path-integral Green-function residue formula.
+Compute the positive-frequency diagonal saddle-point DSSF using the
+path-integral Green-function spectral representation.
 
-Returns `ret_normal, ret_condensate`, where both arrays have size
+The result is a named tuple with fields `ordinary_normal`,
+`ordinary_condensed`, `active_constraint`, and `total`. Each field has size
 `3 × length(energies)`.
 
-The normal-normal part uses `Green_SP_normal_residues`, so the selected
-soft-mode poles stored in `aux` are removed from the normal sector.
+The ordinary terms use the complete unit-residue saddle-point Green function.
+`ordinary_condensed` contains both mixed orientations involving the selected
+sector; the selected-selected elastic contribution is omitted. All signed-pole
+transitions allowed at positive frequency are retained at finite temperature.
 
-The selected-normal part uses `Green_SP_condensed_residues`, so the same
-selected soft-mode poles are inserted into the selected sector with the total
-Green-function pole weights stored in `aux.condensate_weights`.
+For an active soft-minimum constraint, `active_constraint` contains the
+separate fixed-`ξ` source-source contribution. The enhanced occupation is not
+inserted into an ordinary Green-function residue or Bose factor.
 
-The branch-dependent collapsed momentum-sum factor is handled by
-`_condensate_sum_factor(aux, L)`:
-
-    finite_size_minimum: 1
-    pinned:              L^2
-
-Thus a finite-size selected pole is only split out as an ordinary BdG pole,
-while an active pinned soft-min pole receives the macroscopic collapsed-sum
-enhancement.
-
-For the selected-normal terms, this implementation includes both finite-soft-gap
-positive-frequency branches:
-
-1. the condensate creation branch
-
-       negative selected pole -> positive normal pole,
-       omega = E + epsilon,
-
-   and its momentum-reversed partner;
-
-2. the finite-temperature selected-mode absorption branch
-
-       positive selected pole -> positive normal pole,
-       omega = E - epsilon,
-
-   and its momentum-reversed partner.
-
-The second branch has zero weight at T = 0 through `_dssf_transition_factor`,
-because the positive selected pole is then unoccupied.
-
-The purely elastic selected-selected contribution is not included.
+`Γ` is the full width at half maximum of the Lorentzian broadening.
 """
 function dssf_SP(
     sbs::SchwingerBosonSystem,
@@ -63,8 +36,9 @@ function dssf_SP(
 )
     num_energies = length(energies)
 
-    ret_normal = zeros(Float64, 3, num_energies)
-    ret_condensate = zeros(Float64, 3, num_energies)
+    ret_ordinary_normal = zeros(Float64, 3, num_energies)
+    ret_ordinary_condensed = zeros(Float64, 3, num_energies)
+    ret_active_constraint = zeros(Float64, 3, num_energies)
 
     (; L) = sbs
 
@@ -83,34 +57,43 @@ function dssf_SP(
         push!(k_grid, Vec3([(i - 1) / L, (j - 1) / L, 0.0]))
     end
 
-    # ------------------------------------------------------------------
-    # Normal-normal contribution.
-    # ------------------------------------------------------------------
+    qc = _spectral_condensation_momentum(aux, L)
+    selected_band_mask = falses(12)
 
+    for band in aux.conden_band_indices
+        selected_band_mask[band] = true
+    end
+
+    # Complete ordinary unit-residue response from S_eff.
     for k in k_grid
         kq = k + q_reshaped
 
-        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
-        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+        ϵs_k, Vk, weights_k = _full_sp_residues(sbs, k)
+        ϵs_kq, Vkq, weights_kq = _full_sp_residues(sbs, kq)
+
+        k_is_selected = _same_momentum_mod1(k, qc)
+        kq_is_selected = _same_momentum_mod1(kq, qc)
 
         for m in eachindex(ϵs_k)
-            iszero(weights_k[m]) && continue
-
             Em = ϵs_k[m]
+            m_selected = k_is_selected && selected_band_mask[m]
 
             for n in eachindex(ϵs_kq)
-                iszero(weights_kq[n]) && continue
-
                 En = ϵs_kq[n]
-                ΔE = real(En - Em)
+                n_selected = kq_is_selected && selected_band_mask[n]
 
-                transition_factor = _dssf_transition_factor(
-                    Em,
-                    En,
-                    βtemp,
-                )
+                m_selected && n_selected && continue
+
+                ΔE = real(En - Em)
+                transition_factor =
+                    _dssf_transition_factor(Em, En, βtemp)
 
                 iszero(transition_factor) && continue
+
+                ret_sector =
+                    m_selected != n_selected ?
+                    ret_ordinary_condensed :
+                    ret_ordinary_normal
 
                 for μ in 1:3
                     trace_weight = _residue_vertex_trace(
@@ -125,10 +108,12 @@ function dssf_SP(
                     )
 
                     weight =
-                        -real(trace_weight) * transition_factor / (8Ns)
+                        -real(trace_weight) *
+                        transition_factor /
+                        (8Ns)
 
                     for (ie, energy) in enumerate(energies)
-                        ret_normal[μ, ie] +=
+                        ret_sector[μ, ie] +=
                             weight * lorentzian(energy - ΔE, Γ)
                     end
                 end
@@ -136,267 +121,138 @@ function dssf_SP(
         end
     end
 
-    # ------------------------------------------------------------------
-    # Selected-normal contribution.
-    #
-    # Selected-normal terms are collected in `ret_condensate`, while the
-    # purely selected-selected elastic piece is omitted.
-    # ------------------------------------------------------------------
+    # Separate fixed-ξ source-source curvature.
+    if aux.selection_kind === :pinned
+        ϵs_c, Vc, _ = _selected_unit_residues(sbs, qc, aux)
 
-    qc = _spectral_condensation_momentum(aux, L)
-    condensate_sum_factor = _condensate_sum_factor(aux, L)
+        active_weights = _active_positive_weights(ϵs_c, aux)
+        active_mask = _active_positive_mask(ϵs_c, aux)
+        unit_active_weights = zeros(Float64, length(ϵs_c))
 
-    # --------------------------------------------------------------
-    # Orientation 1:
-    #
-    #     G_n(k + q) G_c(k),
-    #
-    # with k = qc. The selected pole is on the second line.
-    # --------------------------------------------------------------
+        Nflavor = 2.0
 
-    k = qc
-    kq = qc + q_reshaped
+        # First ordering: qc -> qc + q -> qc.
+        kn = qc + q_reshaped
+        ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
 
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, k, aux)
-    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kq, aux)
+        exclude_active_intermediate =
+            _same_momentum_mod1(kn, qc)
 
-    # ----------------------------------------------------------
-    # Condensate creation branch:
-    #
-    #     E_selected = -epsilon,
-    #     E_normal   = +E,
-    #     omega      = E + epsilon.
-    # ----------------------------------------------------------
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
 
-    for a in 1:6
-        lcond_neg = 6 + a
-        iszero(weights_c[lcond_neg]) && continue
+            Ei = ϵs_c[i]
 
-        Em = ϵs_c[lcond_neg]
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
 
-        for b in 1:6
-            lpos = b
-            iszero(weights_n[lpos]) && continue
+            for n in eachindex(ϵs_n)
+                if exclude_active_intermediate && active_mask[n]
+                    continue
+                end
 
-            En = ϵs_n[lpos]
-            ΔE = real(En - Em)
-            ΔE > 0 || continue
+                En = ϵs_n[n]
+                ΔE = real(En - Ei)
+                dssf_factor =
+                    _dssf_fluctuation_dissipation_factor(ΔE, βtemp)
 
-            transition_factor = _dssf_transition_factor(
-                Em,
-                En,
-                βtemp,
-            )
+                iszero(dssf_factor) && continue
 
-            iszero(transition_factor) && continue
+                for μ in 1:3
+                    coherence = _residue_vertex_trace(
+                        Vn,
+                        weights_n,
+                        n,
+                        Umq[μ],
+                        Vc,
+                        unit_active_weights,
+                        i,
+                        Uq[μ],
+                    )
 
-            for μ in 1:3
-                trace_weight = _residue_vertex_trace(
-                    Vn,
-                    weights_n,
-                    lpos,
-                    Umq[μ],
-                    Vc,
-                    weights_c,
-                    lcond_neg,
-                    Uq[μ],
-                )
+                    weight =
+                        Nflavor *
+                        ξi *
+                        real(coherence) *
+                        dssf_factor /
+                        4
 
-                weight = transition_factor * (
-                    -condensate_sum_factor * real(trace_weight) / (8Ns)
-                )
+                    for (ie, energy) in enumerate(energies)
+                        ret_active_constraint[μ, ie] +=
+                            weight * lorentzian(energy - ΔE, Γ)
+                    end
+                end
+            end
+        end
 
-                for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] +=
-                        weight * lorentzian(energy - ΔE, Γ)
+        # Second ordering: qc -> qc - q -> qc.
+        kn = qc - q_reshaped
+        ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+
+        exclude_active_intermediate =
+            _same_momentum_mod1(kn, qc)
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for m in eachindex(ϵs_n)
+                if exclude_active_intermediate && active_mask[m]
+                    continue
+                end
+
+                Em = ϵs_n[m]
+                ΔE = real(Ei - Em)
+                dssf_factor =
+                    _dssf_fluctuation_dissipation_factor(ΔE, βtemp)
+
+                iszero(dssf_factor) && continue
+
+                for μ in 1:3
+                    coherence = _residue_vertex_trace(
+                        Vc,
+                        unit_active_weights,
+                        i,
+                        Umq[μ],
+                        Vn,
+                        weights_n,
+                        m,
+                        Uq[μ],
+                    )
+
+                    weight =
+                        -Nflavor *
+                        ξi *
+                        real(coherence) *
+                        dssf_factor /
+                        4
+
+                    for (ie, energy) in enumerate(energies)
+                        ret_active_constraint[μ, ie] +=
+                            weight * lorentzian(energy - ΔE, Γ)
+                    end
                 end
             end
         end
     end
 
-    # ----------------------------------------------------------
-    # Finite-T selected absorption branch:
-    #
-    #     E_selected = +epsilon,
-    #     E_normal   = +E,
-    #     omega      = E - epsilon.
-    #
-    # This branch vanishes at T = 0 because the positive selected
-    # pole is not thermally occupied.
-    # ----------------------------------------------------------
+    ret_total =
+        ret_ordinary_normal .+
+        ret_ordinary_condensed .+
+        ret_active_constraint
 
-    for a in 1:6
-        lcond_pos = a
-        iszero(weights_c[lcond_pos]) && continue
-
-        Em = ϵs_c[lcond_pos]
-
-        for b in 1:6
-            lpos = b
-            iszero(weights_n[lpos]) && continue
-
-            En = ϵs_n[lpos]
-            ΔE = real(En - Em)
-            ΔE > 0 || continue
-
-            transition_factor = _dssf_transition_factor(
-                Em,
-                En,
-                βtemp,
-            )
-
-            iszero(transition_factor) && continue
-
-            for μ in 1:3
-                trace_weight = _residue_vertex_trace(
-                    Vn,
-                    weights_n,
-                    lpos,
-                    Umq[μ],
-                    Vc,
-                    weights_c,
-                    lcond_pos,
-                    Uq[μ],
-                )
-
-                weight = transition_factor * (
-                    -condensate_sum_factor * real(trace_weight) / (8Ns)
-                )
-
-                for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] +=
-                        weight * lorentzian(energy - ΔE, Γ)
-                end
-            end
-        end
-    end
-
-    # --------------------------------------------------------------
-    # Orientation 2:
-    #
-    #     G_c(k + q) G_n(k),
-    #
-    # with k + q = qc. The selected pole is on the first line.
-    # --------------------------------------------------------------
-
-    k = qc - q_reshaped
-    kq = qc
-
-    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, k, aux)
-    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kq, aux)
-
-    # ----------------------------------------------------------
-    # Condensate creation branch:
-    #
-    #     E_normal   = -E,
-    #     E_selected = +epsilon,
-    #     omega      = E + epsilon.
-    # ----------------------------------------------------------
-
-    for a in 1:6
-        lneg = 6 + a
-        iszero(weights_n[lneg]) && continue
-
-        Em = ϵs_n[lneg]
-
-        for b in 1:6
-            lcond_pos = b
-            iszero(weights_c[lcond_pos]) && continue
-
-            En = ϵs_c[lcond_pos]
-            ΔE = real(En - Em)
-            ΔE > 0 || continue
-
-            transition_factor = _dssf_transition_factor(
-                Em,
-                En,
-                βtemp,
-            )
-
-            iszero(transition_factor) && continue
-
-            for μ in 1:3
-                trace_weight = _residue_vertex_trace(
-                    Vc,
-                    weights_c,
-                    lcond_pos,
-                    Umq[μ],
-                    Vn,
-                    weights_n,
-                    lneg,
-                    Uq[μ],
-                )
-
-                weight = transition_factor * (
-                    -condensate_sum_factor * real(trace_weight) / (8Ns)
-                )
-
-                for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] +=
-                        weight * lorentzian(energy - ΔE, Γ)
-                end
-            end
-        end
-    end
-
-    # ----------------------------------------------------------
-    # Finite-T selected absorption branch:
-    #
-    #     E_normal   = -E,
-    #     E_selected = -epsilon,
-    #     omega      = E - epsilon.
-    #
-    # This is the row/momentum partner of the positive-selected to
-    # positive-normal absorption process above.
-    # ----------------------------------------------------------
-
-    for a in 1:6
-        lneg = 6 + a
-        iszero(weights_n[lneg]) && continue
-
-        Em = ϵs_n[lneg]
-
-        for b in 1:6
-            lcond_neg = 6 + b
-            iszero(weights_c[lcond_neg]) && continue
-
-            En = ϵs_c[lcond_neg]
-            ΔE = real(En - Em)
-            ΔE > 0 || continue
-
-            transition_factor = _dssf_transition_factor(
-                Em,
-                En,
-                βtemp,
-            )
-
-            iszero(transition_factor) && continue
-
-            for μ in 1:3
-                trace_weight = _residue_vertex_trace(
-                    Vc,
-                    weights_c,
-                    lcond_neg,
-                    Umq[μ],
-                    Vn,
-                    weights_n,
-                    lneg,
-                    Uq[μ],
-                )
-
-                weight = transition_factor * (
-                    -condensate_sum_factor * real(trace_weight) / (8Ns)
-                )
-
-                for (ie, energy) in enumerate(energies)
-                    ret_condensate[μ, ie] +=
-                        weight * lorentzian(energy - ΔE, Γ)
-                end
-            end
-        end
-    end
-
-    return ret_normal, ret_condensate
+    return (
+        ordinary_normal = ret_ordinary_normal,
+        ordinary_condensed = ret_ordinary_condensed,
+        active_constraint = ret_active_constraint,
+        total = ret_total,
+    )
 end
 
 """

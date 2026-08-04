@@ -76,6 +76,36 @@ sector, so the collapsed finite-size momentum sum contributes `L^2`.
 end
 
 """
+    _dssf_fluctuation_dissipation_factor(ΔE, β)
+
+Return the positive-frequency fluctuation-dissipation factor
+
+    1 / (1 - exp(-β ΔE)).
+
+The zero-frequency tolerance and large-exponent branches match the conventions
+used by the DSSF transition factors below.
+"""
+@inline function _dssf_fluctuation_dissipation_factor(
+    ΔE::Real,
+    β::Real,
+)
+    ΔE <= 1e-12 && return 0.0
+    !isfinite(β) && return 1.0
+
+    x = β * ΔE
+
+    if abs(x) < 1e-10
+        return 0.0
+    elseif x > 700
+        return 1.0
+    elseif x < -700
+        return 0.0
+    else
+        return inv(-expm1(-x))
+    end
+end
+
+"""
     _dssf_factor_from_occupations(ΔE, nb_m, nb_n, β)
 
 Convert the retarded-bubble occupation difference into the positive-frequency
@@ -100,21 +130,8 @@ The occupation difference appearing in the retarded bubble is
     occdiff = nb_n - nb_m
     iszero(occdiff) && return 0.0
 
-    if !isfinite(β)
-        return occdiff
-    end
-
-    x = β * ΔE
-
-    if abs(x) < 1e-10
-        return 0.0
-    elseif x > 700
-        return occdiff
-    elseif x < -700
-        return 0.0
-    else
-        return occdiff / (1 - exp(-x))
-    end
+    return occdiff *
+        _dssf_fluctuation_dissipation_factor(ΔE, β)
 end
 
 """
