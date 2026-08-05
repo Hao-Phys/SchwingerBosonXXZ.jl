@@ -37,8 +37,8 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
     D21 = view(D, 7:12, 1:6)
 
     for α in 1:3
-        @. D11[2α-1:2α, 2α-1:2α] += -S*h_SB*(sin(θs[α])*σs[1] + cos(θs[α]) * σs[3])
-        @. D22[2α-1:2α, 2α-1:2α] += -S*h_SB*(sin(θs[α])*σs[1] + cos(θs[α]) * σs[3])
+        @. D11[2α-1:2α, 2α-1:2α] += -S*h_SB*(cos(θs[α])*σs[1] + sin(θs[α]) * σs[3])
+        @. D22[2α-1:2α, 2α-1:2α] += -S*h_SB*(cos(θs[α])*σs[1] + sin(θs[α]) * σs[3])
 
         phase = link_phase(α, q_reshaped)
         for σ in 1:2
