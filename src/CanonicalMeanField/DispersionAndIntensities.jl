@@ -97,8 +97,8 @@ end
         sbs::SchwingerBosonSystem,
         q,
         energies,
-        Γ;
-        aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
+        Γ,
+        aux::SpectralCondensationAux
     )
 
 Compute the positive-frequency diagonal saddle-point DSSF using the canonical
@@ -108,7 +108,8 @@ Bogoliubov representation.
 contributions from `S_eff`. The canonical pair-creation contribution uses the
 physical spinon momenta `-k` and `k + q`. The independently derived thermal
 quasiparticle-scattering contribution uses the physical transition
-`k -> k + q`.
+`k -> k + q`. Its component expression is written in the conjugate matrix-
+element orientation and therefore uses the conjugate sublattice phase.
 
 `active_constraint` contains the separate fixed-`ξ` curvature contribution.
 The enhanced occupation is not inserted into the ordinary BdG residues or
@@ -120,8 +121,8 @@ function dssf_mean_field(
     sbs::SchwingerBosonSystem,
     q,
     energies,
-    Γ;
-    aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
+    Γ,
+    aux::SpectralCondensationAux
 )
     num_energies = length(energies)
     num_bands = 6
@@ -155,10 +156,7 @@ function dssf_mean_field(
     k_grid = Vec3[]
 
     for i in 1:L, j in 1:L
-        push!(
-            k_grid,
-            Vec3([(i - 1) / L, (j - 1) / L, 0.0]),
-        )
+        push!(k_grid, Vec3([(i - 1) / L, (j - 1) / L, 0.0]))
     end
 
     qc = _spectral_condensation_momentum(aux, L)
@@ -227,7 +225,8 @@ function dssf_mean_field(
                     reshape(view(Vk, :, a), 2, 3, 2)
 
                 for α in 1:3
-                    phase = spin_phase[α]
+                    pair_phase = spin_phase[α]
+                    scattering_phase = conj(spin_phase[α])
 
                     for μ in 1:3
                         σμ = σs[μ]
@@ -237,7 +236,7 @@ function dssf_mean_field(
                             # pair-creation matrix element.
                             pair_amplitude[μ, a, b] +=
                                 0.5 *
-                                phase *
+                                pair_phase *
                                 σμ[σ, σ′] *
                                 (
                                     vqpk[σ, α, 2] *
@@ -247,10 +246,13 @@ function dssf_mean_field(
                                 )
 
                             # Number-conserving canonical matrix element
-                            # for β†_{k+q,b} β_{k,a}.
+                            # for β†_{k+q,b} β_{k,a}. The component
+                            # expression is the conjugate orientation of
+                            # v†_{k,a} U_q v_{k+q,b}, so it carries the
+                            # conjugate sublattice phase.
                             scattering_amplitude[μ, a, b] +=
                                 0.5 *
-                                phase *
+                                scattering_phase *
                                 σμ[σ, σ′] *
                                 (
                                     conj(vqpk[σ, α, 1]) *
@@ -308,11 +310,7 @@ function dssf_mean_field(
                     ΔE_pair = E_mk + E_qpk
 
                     pair_factor =
-                        _dssf_transition_factor(
-                            -E_mk,
-                            E_qpk,
-                            βtemp,
-                        )
+                        _dssf_transition_factor(-E_mk, E_qpk, βtemp)
 
                     if !iszero(pair_factor)
                         ret_sector =
@@ -329,10 +327,7 @@ function dssf_mean_field(
                             for (ie, energy) in enumerate(energies)
                                 ret_sector[μ, ie] +=
                                     weight *
-                                    lorentzian(
-                                        energy - ΔE_pair,
-                                        Γ,
-                                    )
+                                    lorentzian(energy - ΔE_pair, Γ)
                             end
                         end
                     end
@@ -356,11 +351,7 @@ function dssf_mean_field(
 
                     if ΔE_scattering > 1e-12
                         scattering_factor =
-                            -_dssf_transition_factor(
-                                E_k,
-                                E_qpk,
-                                βtemp,
-                            )
+                            -_dssf_transition_factor(E_k, E_qpk, βtemp)
 
                         if !iszero(scattering_factor)
                             ret_sector =
@@ -370,9 +361,7 @@ function dssf_mean_field(
 
                             for μ in 1:3
                                 weight =
-                                    abs2(
-                                        scattering_amplitude[μ, a, b],
-                                    ) *
+                                    abs2(scattering_amplitude[μ, a, b]) *
                                     scattering_factor /
                                     Ns
 
@@ -381,7 +370,7 @@ function dssf_mean_field(
                                         weight *
                                         lorentzian(
                                             energy - ΔE_scattering,
-                                            Γ,
+                                            Γ
                                         )
                                 end
                             end
@@ -400,11 +389,8 @@ function dssf_mean_field(
         dynamical_matrix!(Hk, sbs, qc)
         ϵs_c = bogoliubov!(Vk, Hk)
 
-        active_weights =
-            _active_positive_weights(ϵs_c, aux)
-
-        active_mask =
-            _active_positive_mask(ϵs_c, aux)
+        active_weights = aux.active_positive_weights
+        active_mask = active_weights .> 0.0
 
         Nflavor = 2.0
 
@@ -430,9 +416,7 @@ function dssf_mean_field(
             vi = reshape(view(Vk, :, i), 2, 3, 2)
 
             for n in eachindex(ϵs_n)
-                if exclude_active_intermediate &&
-                   active_mask[n]
-
+                if exclude_active_intermediate && active_mask[n]
                     continue
                 end
 
@@ -440,10 +424,7 @@ function dssf_mean_field(
                 ΔE = real(En - Ei)
 
                 dssf_factor =
-                    _dssf_fluctuation_dissipation_factor(
-                        ΔE,
-                        βtemp,
-                    )
+                    _dssf_fluctuation_dissipation_factor(ΔE, βtemp)
 
                 iszero(dssf_factor) && continue
 
@@ -510,9 +491,7 @@ function dssf_mean_field(
             vi = reshape(view(Vk, :, i), 2, 3, 2)
 
             for m in eachindex(ϵs_n)
-                if exclude_active_intermediate &&
-                   active_mask[m]
-
+                if exclude_active_intermediate && active_mask[m]
                     continue
                 end
 
@@ -520,10 +499,7 @@ function dssf_mean_field(
                 ΔE = real(Ei - Em)
 
                 dssf_factor =
-                    _dssf_fluctuation_dissipation_factor(
-                        ΔE,
-                        βtemp,
-                    )
+                    _dssf_fluctuation_dissipation_factor(ΔE, βtemp)
 
                 iszero(dssf_factor) && continue
 
@@ -578,6 +554,6 @@ function dssf_mean_field(
         ordinary_normal = ret_ordinary_normal,
         ordinary_condensed = ret_ordinary_condensed,
         active_constraint = ret_active_constraint,
-        total = ret_total,
+        total = ret_total
     )
 end

@@ -12,17 +12,16 @@ end
 
 Finite-temperature Bose factor for a bosonic BdG pole energy `E`.
 
-For positive poles, this is the usual Bose factor.
-
-For negative BdG poles, it satisfies
+For positive poles, this is the usual Bose factor. For negative BdG poles,
 
     nB(-E) = -1 - nB(E),
 
-and therefore approaches `-1` as `T -> 0`.
+and the result approaches `-1` as `T -> 0`.
 
-This function is used for both normal and selected poles. The selected sector is
-distinguished by its residue weight and collapsed momentum-sum factor, not by a
-different thermal occupation.
+This function is used for every ordinary unit-residue BdG pole, including
+poles in the algebraically selected sector. Active soft-minimum occupations
+are not Bose factors and are added separately through fixed-`ξ` curvature
+blocks.
 """
 @inline function _pole_bose(E::Number, β::Real)
     Er = real(E)
@@ -57,25 +56,6 @@ different thermal occupation.
 end
 
 """
-    _condensate_sum_factor(aux, L)
-
-Collapsed momentum-sum factor for the selected soft-mode sector.
-
-For `:finite_size_minimum`, the selected pole is only an ordinary finite-size
-BdG pole split out from the normal sector, so no macroscopic enhancement is
-applied.
-
-For `:pinned`, the selected pole represents the active soft-min condensate
-sector, so the collapsed finite-size momentum sum contributes `L^2`.
-"""
-@inline function _condensate_sum_factor(
-    aux::SpectralCondensationAux,
-    L::Int,
-)
-    return aux.selection_kind === :pinned ? Float64(L^2) : 1.0
-end
-
-"""
     _dssf_fluctuation_dissipation_factor(ΔE, β)
 
 Return the positive-frequency fluctuation-dissipation factor
@@ -106,18 +86,14 @@ used by the DSSF transition factors below.
 end
 
 """
-    _dssf_factor_from_occupations(ΔE, nb_m, nb_n, β)
+    _dssf_transition_factor(Em, En, β)
 
-Convert the retarded-bubble occupation difference into the positive-frequency
-DSSF transition factor.
+Finite-temperature transition factor for an ordinary unit-residue DSSF
+bubble. Both `Em` and `En` are signed BdG pole energies.
 
-Here `m` is the incoming Green-function line, `n` is the outgoing line, and
-
-    ΔE = En - Em.
-
-The occupation difference appearing in the retarded bubble is
-
-    nb_n - nb_m.
+The same function applies to normal-normal and mixed selected-normal
+transitions. The selected ordinary poles retain unit residue. Active
+soft-minimum occupations are not included here.
 """
 @inline function _dssf_factor_from_occupations(
     ΔE::Real,

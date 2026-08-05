@@ -94,7 +94,7 @@ function internal_vertices!(
             field.a,
             field.δ,
             k,
-            p,
+            p
         )
     else
         throw(ArgumentError("Unknown internal-field kind `$(field.kind)`."))
@@ -137,7 +137,7 @@ function row_internal_vertices!(
             field.a,
             field.δ,
             k,
-            p,
+            p
         )
     elseif field.kind === :Wbar
         return internal_vertices!(
@@ -148,7 +148,7 @@ function row_internal_vertices!(
             field.a,
             field.δ,
             k,
-            p,
+            p
         )
     else
         throw(ArgumentError("Unknown internal-field kind `$(field.kind)`."))
@@ -177,7 +177,7 @@ function Pi0!(
 
     size(Π0) == (nϕ, nϕ) ||
         throw(DimensionMismatch(
-            "`Π0` must have size ($(nϕ), $(nϕ)).",
+            "`Π0` must have size ($(nϕ), $(nϕ))."
         ))
 
     fill!(Π0, 0.0 + 0.0im)
@@ -223,100 +223,6 @@ function _full_sp_residues(
     return ϵs, V, weights
 end
 
-
-"""
-    _selected_unit_residues(sbs, q, aux)
-
-Return the selected BdG sector with unit pole weights.
-
-This reconstructs the ordinary saddle-point Green's-function contribution.
-The enhanced occupation `ξ` is not included here.
-"""
-function _selected_unit_residues(
-    sbs::SchwingerBosonSystem,
-    q::Vec3,
-    aux::SpectralCondensationAux,
-)
-    ϵs, V, stored_weights =
-        Green_SP_condensed_residues(sbs, q, aux)
-
-    weights = zeros(Float64, length(stored_weights))
-
-    for l in eachindex(weights)
-        if !iszero(stored_weights[l])
-            weights[l] = 1.0
-        end
-    end
-
-    return ϵs, V, weights
-end
-
-
-"""
-    _active_positive_weights(ϵs, aux)
-
-Return weights containing only the active positive-energy selected modes.
-
-The nonzero value is the additional enhanced occupation
-
-    ξᵢ = total_weightᵢ - 1.
-
-Negative-energy Nambu partners are not independently included in the outer
-active-mode sum.
-"""
-function _active_positive_weights(
-    ϵs::AbstractVector,
-    aux::SpectralCondensationAux,
-)
-    weights = zeros(Float64, length(ϵs))
-
-    aux.selection_kind === :pinned || return weights
-
-    for l in aux.conden_band_indices
-        1 <= l <= length(ϵs) || continue
-        ϵs[l] > 0 || continue
-
-        total_weight = aux.condensate_weights[l]
-        ξ = max(total_weight - 1.0, 0.0)
-
-        weights[l] = ξ
-    end
-
-    return weights
-end
-
-
-"""
-    _active_positive_mask(ϵs, aux)
-
-Return a Boolean mask for the full active positive-energy subspace.
-
-For a degenerate active multiplet, the entire active subspace must be removed
-from the intermediate-state sum when the intermediate momentum coincides with
-the condensate momentum.
-"""
-function _active_positive_mask(
-    ϵs::AbstractVector,
-    aux::SpectralCondensationAux,
-)
-    mask = falses(length(ϵs))
-
-    aux.selection_kind === :pinned || return mask
-
-    for l in aux.conden_band_indices
-        1 <= l <= length(ϵs) || continue
-        ϵs[l] > 0 || continue
-
-        ξ = max(aux.condensate_weights[l] - 1.0, 0.0)
-        iszero(ξ) && continue
-
-        mask[l] = true
-    end
-
-    return mask
-end
-
-
 # ----------------------------------------------------------------------
 # Polarization operator
 # ----------------------------------------------------------------------
@@ -328,9 +234,9 @@ end
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Fill `Π` with the ordinary unit-residue saddle-point polarization.
@@ -350,9 +256,9 @@ function polarization!(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     fill!(Π, 0.0 + 0.0im)
 
@@ -362,9 +268,9 @@ function polarization!(
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = Nflavor,
-        aux = aux,
     )
 
     polarization_condensate_normal!(
@@ -373,9 +279,9 @@ function polarization!(
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = Nflavor,
-        aux = aux,
     )
 
     polarization_condensate_condensate!(
@@ -384,9 +290,9 @@ function polarization!(
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = Nflavor,
-        aux = aux,
     )
 
     return Π
@@ -400,9 +306,9 @@ end
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Add the normal-normal ordinary saddle-point polarization.
@@ -413,15 +319,15 @@ function polarization_normal!(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     nϕ = length(fields)
 
     size(Π) == (nϕ, nϕ) ||
         throw(DimensionMismatch(
-            "`Π` must have size ($(nϕ), $(nϕ)).",
+            "`Π` must have size ($(nϕ), $(nϕ))."
         ))
 
     Nk = length(kgrid)
@@ -437,19 +343,8 @@ function polarization_normal!(
     for k in kgrid
         kq = k + q
 
-        ϵs_k, Vk, weights_k =
-            if aux === nothing
-                _full_sp_residues(sbs, k)
-            else
-                Green_SP_normal_residues(sbs, k, aux)
-            end
-
-        ϵs_kq, Vkq, weights_kq =
-            if aux === nothing
-                _full_sp_residues(sbs, kq)
-            else
-                Green_SP_normal_residues(sbs, kq, aux)
-            end
+        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
 
         for (iα, α) in pairs(fields)
             row_internal_vertices!(Vrow, sbs, α, k, kq)
@@ -484,7 +379,7 @@ function polarization_normal!(
                             Vk,
                             weights_k,
                             m,
-                            Vrow,
+                            Vrow
                         )
 
                         accum += coherence * occdiff / denom
@@ -507,9 +402,9 @@ end
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Reconstruct the ordinary mixed selected-normal saddle-point polarization,
@@ -527,18 +422,17 @@ function polarization_condensate_normal!(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
-    aux === nothing && return Π
     isempty(aux.conden_band_indices) && return Π
 
     nϕ = length(fields)
 
     size(Π) == (nϕ, nϕ) ||
         throw(DimensionMismatch(
-            "`Π` must have size ($(nϕ), $(nϕ)).",
+            "`Π` must have size ($(nϕ), $(nϕ))."
         ))
 
     Nk = length(kgrid)
@@ -555,11 +449,8 @@ function polarization_condensate_normal!(
     kc = qc
     kn = qc + q
 
-    ϵs_c, Vc, weights_c =
-        _selected_unit_residues(sbs, kc, aux)
-
-    ϵs_n, Vn, weights_n =
-        Green_SP_normal_residues(sbs, kn, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kc, kn)
@@ -594,7 +485,7 @@ function polarization_condensate_normal!(
                         Vc,
                         weights_c,
                         m,
-                        Vrow,
+                        Vrow
                     )
 
                     accum += coherence * occdiff / denom
@@ -608,11 +499,8 @@ function polarization_condensate_normal!(
     kn = qc - q
     kc = qc
 
-    ϵs_n, Vn, weights_n =
-        Green_SP_normal_residues(sbs, kn, aux)
-
-    ϵs_c, Vc, weights_c =
-        _selected_unit_residues(sbs, kc, aux)
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kn, kc)
@@ -647,7 +535,7 @@ function polarization_condensate_normal!(
                         Vn,
                         weights_n,
                         m,
-                        Vrow,
+                        Vrow
                     )
 
                     accum += coherence * occdiff / denom
@@ -669,9 +557,9 @@ end
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Reconstruct the ordinary selected-selected saddle-point polarization using
@@ -686,18 +574,17 @@ function polarization_condensate_condensate!(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
-    aux === nothing && return Π
     isempty(aux.conden_band_indices) && return Π
 
     nϕ = length(fields)
 
     size(Π) == (nϕ, nϕ) ||
         throw(DimensionMismatch(
-            "`Π` must have size ($(nϕ), $(nϕ)).",
+            "`Π` must have size ($(nϕ), $(nϕ))."
         ))
 
     Nk = length(kgrid)
@@ -715,11 +602,8 @@ function polarization_condensate_condensate!(
     Vrow = zeros(ComplexF64, 12, 12)
     Vcol = zeros(ComplexF64, 12, 12)
 
-    ϵs_k, Vk, weights_k =
-        _selected_unit_residues(sbs, kc, aux)
-
-    ϵs_kq, Vkq, weights_kq =
-        _selected_unit_residues(sbs, kq, aux)
+    ϵs_k, Vk, weights_k = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_kq, Vkq, weights_kq = Green_SP_condensed_residues(sbs, kq, aux)
 
     prefactor = 1 / (2 * Nflavor * Nk)
 
@@ -756,7 +640,7 @@ function polarization_condensate_condensate!(
                         Vk,
                         weights_k,
                         m,
-                        Vrow,
+                        Vrow
                     )
 
                     accum += coherence * occdiff / denom
@@ -781,9 +665,9 @@ end
         sbs,
         fields,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Add the fixed-`ξ` soft-minimum contribution to the inverse RPA kernel.
@@ -808,11 +692,10 @@ function active_constraint_kernel!(
     sbs::SchwingerBosonSystem,
     fields::AbstractVector{InternalField},
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
-    aux === nothing && return K
     aux.selection_kind === :pinned || return K
     isempty(aux.conden_band_indices) && return K
 
@@ -820,7 +703,7 @@ function active_constraint_kernel!(
 
     size(K) == (nϕ, nϕ) ||
         throw(DimensionMismatch(
-            "`K` must have size ($(nϕ), $(nϕ)).",
+            "`K` must have size ($(nϕ), $(nϕ))."
         ))
 
     qc = _spectral_condensation_momentum(aux, sbs.L)
@@ -830,17 +713,12 @@ function active_constraint_kernel!(
 
     kc = qc
 
-    ϵs_c, Vc, _ =
-        _selected_unit_residues(sbs, kc, aux)
+    ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, kc, aux)
 
-    active_weights =
-        _active_positive_weights(ϵs_c, aux)
+    active_weights = aux.active_positive_weights
+    active_mask = active_weights .> 0.0
 
-    active_mask =
-        _active_positive_mask(ϵs_c, aux)
-
-    unit_active_weights =
-        zeros(Float64, length(ϵs_c))
+    unit_active_weights = zeros(Float64, length(ϵs_c))
 
     # ------------------------------------------------------------------
     # First ordering:
@@ -856,11 +734,9 @@ function active_constraint_kernel!(
 
     kn = qc + q
 
-    ϵs_n, Vn, weights_n =
-        _full_sp_residues(sbs, kn)
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
 
-    exclude_active_intermediate =
-        _same_momentum_mod1(kn, qc)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kc, kn)
@@ -897,7 +773,7 @@ function active_constraint_kernel!(
                         Vc,
                         unit_active_weights,
                         i,
-                        Vrow,
+                        Vrow
                     )
 
                     curvature += ξi * coherence / denom
@@ -922,11 +798,9 @@ function active_constraint_kernel!(
 
     kn = qc - q
 
-    ϵs_n, Vn, weights_n =
-        _full_sp_residues(sbs, kn)
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
 
-    exclude_active_intermediate =
-        _same_momentum_mod1(kn, qc)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
 
     for (iα, α) in pairs(fields)
         row_internal_vertices!(Vrow, sbs, α, kn, kc)
@@ -963,7 +837,7 @@ function active_constraint_kernel!(
                         Vn,
                         weights_n,
                         m,
-                        Vrow,
+                        Vrow
                     )
 
                     curvature += ξi * coherence / denom
@@ -996,7 +870,7 @@ function rpa_kernel!(
 )
     size(K) == size(Π0) == size(Π) ||
         throw(DimensionMismatch(
-            "`K`, `Π0`, and `Π` must have the same size.",
+            "`K`, `Π0`, and `Π` must have the same size."
         ))
 
     @. K = Π0 - Π
@@ -1012,9 +886,9 @@ end
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Compute the fixed-`ξ` inverse RPA kernel
@@ -1030,15 +904,15 @@ function rpa_kernel!(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     nϕ = length(fields)
 
     size(K) == (nϕ, nϕ) ||
         throw(DimensionMismatch(
-            "`K` must have size ($(nϕ), $(nϕ)).",
+            "`K` must have size ($(nϕ), $(nϕ))."
         ))
 
     Π0 = similar(K)
@@ -1052,9 +926,9 @@ function rpa_kernel!(
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = Nflavor,
-        aux = aux,
     )
 
     rpa_kernel!(K, Π0, Π)
@@ -1064,13 +938,14 @@ function rpa_kernel!(
         sbs,
         fields,
         q,
-        z;
+        z,
+        aux;
         Nflavor = Nflavor,
-        aux = aux,
     )
 
     return K
 end
+
 
 # ----------------------------------------------------------------------
 # Gauge-mode vectors
@@ -1082,9 +957,7 @@ end
     elseif X === :B || X === :C
         return -1.0
     else
-        throw(ArgumentError(
-            "Unknown HS channel `$X`.",
-        ))
+        throw(ArgumentError("Unknown HS channel `$X`."))
     end
 end
 
@@ -1105,11 +978,10 @@ end
     elseif X === :D
         return sbs.mean_fields[a + 9]
     else
-        throw(ArgumentError(
-            "Unknown HS channel `$X`.",
-        ))
+        throw(ArgumentError("Unknown HS channel `$X`."))
     end
 end
+
 
 @inline function _hs_saddle_value_for_gauge_mode(
     sbs::SchwingerBosonSystem,
@@ -1117,11 +989,7 @@ end
     X::Symbol,
     a::Int,
 )
-    mf = _canonical_mean_field_value(
-        sbs,
-        X,
-        a,
-    )
+    mf = _canonical_mean_field_value(sbs, X, a)
 
     if kind === :W
         if X === :A || X === :D
@@ -1129,17 +997,13 @@ end
         elseif X === :B || X === :C
             return -mf
         else
-            throw(ArgumentError(
-                "Unknown HS channel `$X`.",
-            ))
+            throw(ArgumentError("Unknown HS channel `$X`."))
         end
-
     elseif kind === :Wbar
         return conj(mf)
-
     else
         throw(ArgumentError(
-            "Expected `:W` or `:Wbar`; got `$kind`.",
+            "Expected `:W` or `:Wbar`; got `$kind`."
         ))
     end
 end
@@ -1157,67 +1021,49 @@ function gauge_mode_vector!(
 
     length(φD) == nϕ ||
         throw(DimensionMismatch(
-            "`φD` must have length $(nϕ).",
+            "`φD` must have length $(nϕ)."
         ))
 
     length(θ) == 3 ||
         throw(DimensionMismatch(
-            "`θ` must have length 3.",
+            "`θ` must have length 3."
         ))
 
     fill!(φD, 0.0 + 0.0im)
 
     for (i, field) in pairs(fields)
         if field.kind === :λ
-            φD[i] = ComplexF64(
-                z * θ[field.a],
-            )
-
+            φD[i] = ComplexF64(z * θ[field.a])
         elseif field.kind === :W || field.kind === :Wbar
             X = field.channel
             a = field.a
             ap = mod1(a + 1, 3)
 
             ηX = _gauge_eta(X)
-
-            phase = _bond_phase(
-                a,
-                field.δ,
-                q,
-            )
-
-            θbond =
-                θ[a] +
-                ηX * phase * θ[ap]
-
+            phase = _bond_phase(a, field.δ, q)
+            θbond = θ[a] + ηX * phase * θ[ap]
             Wsp = _hs_saddle_value_for_gauge_mode(
                 sbs,
                 field.kind,
                 X,
-                a,
+                a
             )
 
             if field.kind === :W
-                φD[i] =
-                    im *
-                    Wsp *
-                    θbond
+                φD[i] = im * Wsp * θbond
             else
-                φD[i] =
-                    -im *
-                    Wsp *
-                    θbond
+                φD[i] = -im * Wsp * θbond
             end
-
         else
             throw(ArgumentError(
-                "Unknown internal-field kind `$(field.kind)`.",
+                "Unknown internal-field kind `$(field.kind)`."
             ))
         end
     end
 
     return φD
 end
+
 
 """
     gauge_mode_vectors(sbs, fields, q, z)
@@ -1236,23 +1082,11 @@ function gauge_mode_vectors(
 )
     nϕ = length(fields)
 
-    ΦD = zeros(
-        ComplexF64,
-        nϕ,
-        3,
-    )
-
-    θ = zeros(
-        ComplexF64,
-        3,
-    )
+    ΦD = zeros(ComplexF64, nϕ, 3)
+    θ = zeros(ComplexF64, 3)
 
     for aθ in 1:3
-        fill!(
-            θ,
-            0.0 + 0.0im,
-        )
-
+        fill!(θ, 0.0 + 0.0im)
         θ[aθ] = 1.0 + 0.0im
 
         gauge_mode_vector!(
@@ -1261,7 +1095,7 @@ function gauge_mode_vectors(
             fields,
             q,
             z,
-            θ,
+            θ
         )
     end
 
@@ -1275,9 +1109,9 @@ end
         fields,
         kgrid,
         q,
-        z;
+        z,
+        aux;
         Nflavor = 2,
-        aux = nothing,
     )
 
 Construct the RPA kernel and the three gauge tangent vectors, and return
@@ -1293,17 +1127,12 @@ function apply_rpa_kernel_to_gauge_modes(
     fields::AbstractVector{InternalField},
     kgrid,
     q::Vec3,
-    z::Number;
+    z::Number,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
-    aux::Union{Nothing,SpectralCondensationAux} = nothing,
 )
     nϕ = length(fields)
-
-    K = zeros(
-        ComplexF64,
-        nϕ,
-        nϕ,
-    )
+    K = zeros(ComplexF64, nϕ, nϕ)
 
     rpa_kernel!(
         K,
@@ -1311,18 +1140,11 @@ function apply_rpa_kernel_to_gauge_modes(
         fields,
         kgrid,
         q,
-        z;
-        Nflavor = Nflavor,
-        aux = aux,
-    )
-
-    ΦD = gauge_mode_vectors(
-        sbs,
-        fields,
-        q,
         z,
-    )
+        aux;
+        Nflavor = Nflavor)
 
+    ΦD = gauge_mode_vectors(sbs, fields, q, z)
     R = K * ΦD
 
     return K, ΦD, R
@@ -1342,22 +1164,22 @@ function gauge_mode_residuals(
 )
     size(ΦD, 2) == 3 ||
         throw(DimensionMismatch(
-            "`ΦD` must have three columns.",
+            "`ΦD` must have three columns."
         ))
 
     size(R, 2) == 3 ||
         throw(DimensionMismatch(
-            "`R` must have three columns.",
+            "`R` must have three columns."
         ))
 
     size(K, 2) == size(ΦD, 1) ||
         throw(DimensionMismatch(
-            "`K` and `ΦD` have incompatible dimensions.",
+            "`K` and `ΦD` have incompatible dimensions."
         ))
 
     size(K, 1) == size(R, 1) ||
         throw(DimensionMismatch(
-            "`K` and `R` have incompatible dimensions.",
+            "`K` and `R` have incompatible dimensions."
         ))
 
     abs_res = zeros(Float64, 3)
@@ -1367,27 +1189,14 @@ function gauge_mode_residuals(
     K_norm = norm(K)
 
     for aθ in 1:3
-        φ = view(
-            ΦD,
-            :,
-            aθ,
-        )
-
-        r = view(
-            R,
-            :,
-            aθ,
-        )
+        φ = view(ΦD, :, aθ)
+        r = view(R, :, aθ)
 
         φ_norms[aθ] = norm(φ)
         abs_res[aθ] = norm(r)
-
         rel_res[aθ] =
             abs_res[aθ] /
-            max(
-                K_norm * φ_norms[aθ],
-                eps(Float64),
-            )
+            max(K_norm * φ_norms[aθ], eps(Float64))
     end
 
     return abs_res, rel_res, φ_norms

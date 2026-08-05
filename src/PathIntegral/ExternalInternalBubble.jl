@@ -2,38 +2,6 @@
 # External-internal bubbles S^{1+1}
 # ----------------------------------------------------------------------
 
-"""
-    external_internal_bubble!(
-        Sβ,
-        sbs,
-        fields,
-        kgrid,
-        q_ext,
-        q_reshaped,
-        ω,
-        μ;
-        η,
-        aux,
-        include_condensate = true,
-    )
-
-Fill `Sβ` with the retarded column external-internal bubble
-`S^{1+1;μ,R}_{β}(q,ω)` for all column internal fields `β`.
-
-Momentum conventions:
-
-- `q_ext` is the external momentum in the original reciprocal-lattice
-  coordinate. It is used only in `external_vertex(μ, q_ext)`.
-- `q_reshaped` is the folded/reshaped magnetic-Brillouin-zone momentum. It is
-  used in the internal Green's functions and internal vertices.
-
-The column bubble uses the column internal vertex `V_β(k+q,k)` and the
-phase-dressed external vertex `U^μ_q = external_vertex(μ, q_ext)`.
-
-If `include_condensate=true`, the mixed normal-condensate and
-condensate-normal pieces are included using the condensed sector stored in
-`aux`. The purely elastic condensate-condensate piece is omitted.
-"""
 function external_internal_bubble!(
     Sβ::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
@@ -45,14 +13,14 @@ function external_internal_bubble!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    include_condensate::Bool = true,
+    Nflavor::Real = 2
 )
     length(Sβ) == length(fields) ||
         throw(DimensionMismatch(
             "`Sβ` must have length $(length(fields))."
         ))
 
-    Sβ .= 0.0 + 0.0im
+    fill!(Sβ, 0.0 + 0.0im)
 
     external_internal_bubble_normal!(
         Sβ,
@@ -64,30 +32,11 @@ function external_internal_bubble!(
         ω,
         μ;
         η = η,
-        aux = aux,
+        aux = aux
     )
 
-    if include_condensate
-        external_internal_bubble_condensate!(
-            Sβ,
-            sbs,
-            fields,
-            kgrid,
-            q_ext,
-            q_reshaped,
-            ω,
-            μ;
-            η = η,
-            aux = aux,
-        )
-    end
-
-    return Sβ
-end
-
-"""
-    external_internal_bubble_row!(
-        Sα,
+    external_internal_bubble_condensate!(
+        Sβ,
         sbs,
         fields,
         kgrid,
@@ -95,28 +44,27 @@ end
         q_reshaped,
         ω,
         μ;
-        η,
-        aux,
-        include_condensate = true,
+        η = η,
+        aux = aux
     )
 
-Fill `Sα` with the retarded row external-internal bubble
-`S^{†,1+1;μ,R}_{α}(q,ω)` for all row labels `α`.
+    external_internal_bubble_active_constraint!(
+        Sβ,
+        sbs,
+        fields,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
+        η = η,
+        aux = aux,
+        Nflavor = Nflavor
+    )
 
-The stored field labels are the same labels used for the column basis. The
-row-side vertex is obtained by the row-column mapping
+    return Sβ
+end
 
-- row `:W`    -> actual `Wbar(q)`,
-- row `:Wbar` -> actual `W(-q)`,
-- row `:λ`    -> actual `λ(-q)`.
 
-The dagger in the notation labels the row-side derivative vertex. It does not
-mean Hermitian conjugation.
-
-If `include_condensate=true`, the mixed normal-condensate and
-condensate-normal pieces are included using the condensed sector stored in
-`aux`. The purely elastic condensate-condensate piece is omitted.
-"""
 function external_internal_bubble_row!(
     Sα::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
@@ -128,14 +76,14 @@ function external_internal_bubble_row!(
     μ::Int;
     η::Real,
     aux::SpectralCondensationAux,
-    include_condensate::Bool = true,
+    Nflavor::Real = 2
 )
     length(Sα) == length(fields) ||
         throw(DimensionMismatch(
             "`Sα` must have length $(length(fields))."
         ))
 
-    Sα .= 0.0 + 0.0im
+    fill!(Sα, 0.0 + 0.0im)
 
     external_internal_bubble_row_normal!(
         Sα,
@@ -147,23 +95,34 @@ function external_internal_bubble_row!(
         ω,
         μ;
         η = η,
-        aux = aux,
+        aux = aux
     )
 
-    if include_condensate
-        external_internal_bubble_row_condensate!(
-            Sα,
-            sbs,
-            fields,
-            kgrid,
-            q_ext,
-            q_reshaped,
-            ω,
-            μ;
-            η = η,
-            aux = aux,
-        )
-    end
+    external_internal_bubble_row_condensate!(
+        Sα,
+        sbs,
+        fields,
+        kgrid,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
+        η = η,
+        aux = aux
+    )
+
+    external_internal_bubble_row_active_constraint!(
+        Sα,
+        sbs,
+        fields,
+        q_ext,
+        q_reshaped,
+        ω,
+        μ;
+        η = η,
+        aux = aux,
+        Nflavor = Nflavor
+    )
 
     return Sα
 end
@@ -179,25 +138,10 @@ end
         ω,
         μ;
         η,
-        aux,
+        aux
     )
 
-Add the normal-normal contribution to the column bubble `Sβ`.
-
-This implements the Matsubara-summed expression
-
-    S^{1+1;μ}_{β,nn}(q,z)
-        = -1 / (4 sqrt(Ns Nu))
-          sum_k sum_{m,n}
-          tr[C_{k+q,n} V_β(k+q,k) C_{k,m} U^μ_q]
-          [nB(E_{k+q,n}) - nB(E_{k,m})]
-          / [z + E_{k,m} - E_{k+q,n}].
-
-The finite grid is the explicit momentum sum in this formula; no additional
-division by `length(kgrid)` is applied.
-
-The normal Green's functions are evaluated with `Green_SP_normal_residues`, so
-the selected condensed modes in `aux` are removed from the normal sector.
+Add the ordinary normal-normal column external-internal bubble from `S_eff`.
 """
 function external_internal_bubble_normal!(
     Sβ::AbstractVector{ComplexF64},
@@ -209,18 +153,17 @@ function external_internal_bubble_normal!(
     ω::Real,
     μ::Int;
     η::Real,
-    aux::SpectralCondensationAux,
+    aux::SpectralCondensationAux
 )
     nϕ = length(fields)
+
     length(Sβ) == nϕ ||
         throw(DimensionMismatch("`Sβ` must have length $(nϕ)."))
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
-    @boundscheck begin
-        @assert 1 <= μ <= 3
-    end
+    @boundscheck @assert 1 <= μ <= 3
 
     (; L) = sbs
 
@@ -270,7 +213,7 @@ function external_internal_bubble_normal!(
                         Vk,
                         weights_k,
                         m,
-                        Uq,
+                        Uq
                     )
 
                     accum += coherence * occdiff / denom
@@ -284,6 +227,7 @@ function external_internal_bubble_normal!(
     return Sβ
 end
 
+
 """
     external_internal_bubble_row_normal!(
         Sα,
@@ -295,21 +239,10 @@ end
         ω,
         μ;
         η,
-        aux,
+        aux
     )
 
-Add the normal-normal contribution to the row bubble `Sα`.
-
-This is the row-side partner of `external_internal_bubble_normal!`:
-
-    S^{†,1+1;μ}_{α,nn}(q,z)
-        = -1 / (4 sqrt(Ns Nu))
-          sum_k sum_{m,n}
-          tr[C_{k,m} V†_α(k,k+q) C_{k+q,n} U^μ_{-q}]
-          [nB(E_{k+q,n}) - nB(E_{k,m})]
-          / [z + E_{k,m} - E_{k+q,n}].
-
-The row-side vertex is not a Hermitian conjugate.
+Add the ordinary normal-normal row external-internal bubble from `S_eff`.
 """
 function external_internal_bubble_row_normal!(
     Sα::AbstractVector{ComplexF64},
@@ -321,18 +254,17 @@ function external_internal_bubble_row_normal!(
     ω::Real,
     μ::Int;
     η::Real,
-    aux::SpectralCondensationAux,
+    aux::SpectralCondensationAux
 )
     nϕ = length(fields)
+
     length(Sα) == nϕ ||
         throw(DimensionMismatch("`Sα` must have length $(nϕ)."))
 
     Nk = length(kgrid)
     Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
 
-    @boundscheck begin
-        @assert 1 <= μ <= 3
-    end
+    @boundscheck @assert 1 <= μ <= 3
 
     (; L) = sbs
 
@@ -382,7 +314,7 @@ function external_internal_bubble_row_normal!(
                         Vkq,
                         weights_kq,
                         n,
-                        Umq,
+                        Umq
                     )
 
                     accum += coherence * occdiff / denom
@@ -396,6 +328,7 @@ function external_internal_bubble_row_normal!(
     return Sα
 end
 
+
 """
     external_internal_bubble_condensate!(
         Sβ,
@@ -407,29 +340,14 @@ end
         ω,
         μ;
         η,
-        aux,
+        aux
     )
 
-Add the mixed selected-normal pieces to the column external-internal bubble.
+Add the ordinary mixed selected-normal column external-internal bubble from
+`S_eff`.
 
-The elastic selected-selected contribution is omitted.
-
-All BdG poles, normal and selected, use the same finite-temperature occupation
-factor `_pole_bose(E, β)`. The selected sector differs only through its residue
-weight and the branch-dependent collapsed momentum-sum factor.
-
-The branch-dependent collapsed momentum-sum factor is
-
-    finite_size_minimum: 1
-    pinned:              L^2
-
-implemented through `_condensate_sum_factor(aux, L)`. Therefore the prefactor is
-
-    -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu)).
-
-For `:finite_size_minimum`, the selected pole is only reassigned from the
-normal sector to the selected sector. For `:pinned`, the selected line carries
-the macroscopic soft-min condensate enhancement.
+The selected poles carry unit BdG residues. No enhanced occupation `ξ` is
+inserted here. The selected-selected elastic block is omitted.
 """
 function external_internal_bubble_condensate!(
     Sβ::AbstractVector{ComplexF64},
@@ -441,11 +359,12 @@ function external_internal_bubble_condensate!(
     ω::Real,
     μ::Int;
     η::Real,
-    aux::SpectralCondensationAux,
+    aux::SpectralCondensationAux
 )
     isempty(aux.conden_band_indices) && return Sβ
 
     nϕ = length(fields)
+
     length(Sβ) == nϕ ||
         throw(DimensionMismatch("`Sβ` must have length $(nϕ)."))
 
@@ -463,12 +382,9 @@ function external_internal_bubble_condensate!(
     Uq = external_vertex(μ, q_ext)
     Vβ = zeros(ComplexF64, 12, 12)
 
-    prefactor = -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu))
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
 
-    # ------------------------------------------------------------------
     # Selected pole on the k line, normal propagator on the k + q line.
-    # ------------------------------------------------------------------
-
     kc = qc
     kn = qc + q_reshaped
 
@@ -505,7 +421,7 @@ function external_internal_bubble_condensate!(
                     Vc,
                     weights_c,
                     m,
-                    Uq,
+                    Uq
                 )
 
                 accum += coherence * occdiff / denom
@@ -515,10 +431,7 @@ function external_internal_bubble_condensate!(
         Sβ[iβ] += prefactor * accum
     end
 
-    # ------------------------------------------------------------------
     # Normal propagator on the k line, selected pole on the k + q line.
-    # ------------------------------------------------------------------
-
     kn = qc - q_reshaped
     kc = qc
 
@@ -555,7 +468,7 @@ function external_internal_bubble_condensate!(
                     Vn,
                     weights_n,
                     m,
-                    Uq,
+                    Uq
                 )
 
                 accum += coherence * occdiff / denom
@@ -568,6 +481,7 @@ function external_internal_bubble_condensate!(
     return Sβ
 end
 
+
 """
     external_internal_bubble_row_condensate!(
         Sα,
@@ -579,29 +493,14 @@ end
         ω,
         μ;
         η,
-        aux,
+        aux
     )
 
-Add the mixed selected-normal pieces to the row external-internal bubble.
+Add the ordinary mixed selected-normal row external-internal bubble from
+`S_eff`.
 
-The row-side vertex is obtained from `row_internal_vertices!`; the row-side
-dagger labels the Gaussian row partner and does not denote Hermitian
-conjugation.
-
-The elastic selected-selected contribution is omitted.
-
-All BdG poles, normal and selected, use the same finite-temperature occupation
-factor `_pole_bose(E, β)`. The selected sector differs only through its residue
-weight and the branch-dependent collapsed momentum-sum factor.
-
-The branch-dependent collapsed momentum-sum factor is
-
-    finite_size_minimum: 1
-    pinned:              L^2
-
-implemented through `_condensate_sum_factor(aux, L)`. Therefore the prefactor is
-
-    -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu)).
+The selected poles carry unit BdG residues. No enhanced occupation `ξ` is
+inserted here. The selected-selected elastic block is omitted.
 """
 function external_internal_bubble_row_condensate!(
     Sα::AbstractVector{ComplexF64},
@@ -613,11 +512,12 @@ function external_internal_bubble_row_condensate!(
     ω::Real,
     μ::Int;
     η::Real,
-    aux::SpectralCondensationAux,
+    aux::SpectralCondensationAux
 )
     isempty(aux.conden_band_indices) && return Sα
 
     nϕ = length(fields)
+
     length(Sα) == nϕ ||
         throw(DimensionMismatch("`Sα` must have length $(nϕ)."))
 
@@ -635,12 +535,9 @@ function external_internal_bubble_row_condensate!(
     Umq = external_vertex(μ, -q_ext)
     Vrow = zeros(ComplexF64, 12, 12)
 
-    prefactor = -_condensate_sum_factor(aux, L) / (4 * sqrt(Ns * Nu))
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
 
-    # ------------------------------------------------------------------
     # Selected pole on the k line, normal propagator on the k + q line.
-    # ------------------------------------------------------------------
-
     kc = qc
     kn = qc + q_reshaped
 
@@ -677,7 +574,7 @@ function external_internal_bubble_row_condensate!(
                     Vn,
                     weights_n,
                     n,
-                    Umq,
+                    Umq
                 )
 
                 accum += coherence * occdiff / denom
@@ -687,10 +584,7 @@ function external_internal_bubble_row_condensate!(
         Sα[iα] += prefactor * accum
     end
 
-    # ------------------------------------------------------------------
     # Normal propagator on the k line, selected pole on the k + q line.
-    # ------------------------------------------------------------------
-
     kn = qc - q_reshaped
     kc = qc
 
@@ -727,10 +621,280 @@ function external_internal_bubble_row_condensate!(
                     Vc,
                     weights_c,
                     n,
-                    Umq,
+                    Umq
                 )
 
                 accum += coherence * occdiff / denom
+            end
+        end
+
+        Sα[iα] += prefactor * accum
+    end
+
+    return Sα
+end
+
+function external_internal_bubble_active_constraint!(
+    Sβ::AbstractVector{ComplexF64},
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    ω::Real,
+    μ::Int;
+    η::Real,
+    aux::SpectralCondensationAux,
+    Nflavor::Real = 2
+)
+    aux.selection_kind === :pinned || return Sβ
+    isempty(aux.conden_band_indices) && return Sβ
+
+    nϕ = length(fields)
+
+    length(Sβ) == nϕ ||
+        throw(DimensionMismatch("`Sβ` must have length $(nϕ)."))
+
+    @boundscheck @assert 1 <= μ <= 3
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+    z = ω + im * η
+
+    Uq = external_vertex(μ, q_ext)
+    Vβ = zeros(ComplexF64, 12, 12)
+
+    kc = qc
+
+    ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, kc, aux)
+
+    active_weights = aux.active_positive_weights
+    active_mask = active_weights .> 0.0
+    unit_active_weights = zeros(Float64, length(ϵs_c))
+
+    prefactor = Nflavor
+
+    kn = qc + q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iβ, β) in pairs(fields)
+        internal_vertices!(Vβ, sbs, β, kn, kc)
+
+        accum = 0.0 + 0.0im
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for n in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   n <= length(active_mask) &&
+                   active_mask[n]
+                    continue
+                end
+
+                En = ϵs_n[n]
+                denom = Ei - En + z
+
+                coherence = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    n,
+                    Vβ,
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Uq
+                )
+
+                accum += ξi * coherence / denom
+            end
+        end
+
+        Sβ[iβ] += prefactor * accum
+    end
+
+    kn = qc - q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iβ, β) in pairs(fields)
+        internal_vertices!(Vβ, sbs, β, kc, kn)
+
+        accum = 0.0 + 0.0im
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for m in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   m <= length(active_mask) &&
+                   active_mask[m]
+                    continue
+                end
+
+                Em = ϵs_n[m]
+                denom = Ei - Em - z
+
+                coherence = _residue_vertex_trace(
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Vβ,
+                    Vn,
+                    weights_n,
+                    m,
+                    Uq
+                )
+
+                accum += ξi * coherence / denom
+            end
+        end
+
+        Sβ[iβ] += prefactor * accum
+    end
+
+    return Sβ
+end
+
+function external_internal_bubble_row_active_constraint!(
+    Sα::AbstractVector{ComplexF64},
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    ω::Real,
+    μ::Int;
+    η::Real,
+    aux::SpectralCondensationAux,
+    Nflavor::Real = 2
+)
+    aux.selection_kind === :pinned || return Sα
+    isempty(aux.conden_band_indices) && return Sα
+
+    nϕ = length(fields)
+
+    length(Sα) == nϕ ||
+        throw(DimensionMismatch("`Sα` must have length $(nϕ)."))
+
+    @boundscheck @assert 1 <= μ <= 3
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+    z = ω + im * η
+
+    Umq = external_vertex(μ, -q_ext)
+    Vrow = zeros(ComplexF64, 12, 12)
+
+    kc = qc
+
+    ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, kc, aux)
+
+    active_weights = aux.active_positive_weights
+    active_mask = active_weights .> 0.0
+    unit_active_weights = zeros(Float64, length(ϵs_c))
+
+    prefactor = Nflavor
+
+    kn = qc + q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kn)
+
+        accum = 0.0 + 0.0im
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for n in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   n <= length(active_mask) &&
+                   active_mask[n]
+                    continue
+                end
+
+                En = ϵs_n[n]
+                denom = Ei - En + z
+
+                coherence = _residue_vertex_trace(
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Vrow,
+                    Vn,
+                    weights_n,
+                    n,
+                    Umq
+                )
+
+                accum += ξi * coherence / denom
+            end
+        end
+
+        Sα[iα] += prefactor * accum
+    end
+
+    kn = qc - q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kn, kc)
+
+        accum = 0.0 + 0.0im
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for m in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   m <= length(active_mask) &&
+                   active_mask[m]
+                    continue
+                end
+
+                Em = ϵs_n[m]
+                denom = Ei - Em - z
+
+                coherence = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    m,
+                    Vrow,
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Umq
+                )
+
+                accum += ξi * coherence / denom
             end
         end
 
@@ -753,21 +917,13 @@ end
         μ,
         ν;
         η,
-        aux,
-        include_condensate = true,
+        aux
     )
 
 Compute the two external-internal bubbles needed for Fig. 1(b):
 
     Splus[β] = S^{1+1;μ,R}_{β}(q,ω),
     Srow[α]  = S^{†,1+1;ν,R}_{α}(q,ω).
-
-The second object is the row-side bubble in the same external sector `q`; it is
-not obtained by Hermitian conjugation.
-
-If `include_condensate=true`, the mixed normal-condensate and
-condensate-normal pieces are included using the condensed sector stored in
-`aux`. The purely elastic condensate-condensate piece is omitted.
 """
 function external_internal_bubble_pair!(
     Splus::AbstractVector{ComplexF64},
@@ -781,8 +937,7 @@ function external_internal_bubble_pair!(
     μ::Int,
     ν::Int;
     η::Real,
-    aux::SpectralCondensationAux,
-    include_condensate::Bool = true,
+    aux::SpectralCondensationAux
 )
     external_internal_bubble!(
         Splus,
@@ -794,8 +949,7 @@ function external_internal_bubble_pair!(
         ω,
         μ;
         η = η,
-        aux = aux,
-        include_condensate = include_condensate,
+        aux = aux
     )
 
     external_internal_bubble_row!(
@@ -808,8 +962,7 @@ function external_internal_bubble_pair!(
         ω,
         ν;
         η = η,
-        aux = aux,
-        include_condensate = include_condensate,
+        aux = aux
     )
 
     return Splus, Srow

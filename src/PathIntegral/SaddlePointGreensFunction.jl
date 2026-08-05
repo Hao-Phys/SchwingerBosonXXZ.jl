@@ -24,39 +24,30 @@ end
 """
     Green_SP_normal_residues(sbs, q, aux)
 
-Return the spectral data for the normal part of the saddle-point Green's
-function.
+Return the spectral data for the ordinary normal part of the saddle-point
+Green function.
 
-The returned objects are `ϵs, V, weights` such that
+The returned objects are `ϵs, V, weights`, with
 
     G_SP_normal(q, z)
-        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+        = sum_l weights[l] * Ĩ[l,l] *
+          v_l * v_l' / (ϵs[l] - z).
 
-Here `q` must already be in the reshaped reciprocal-lattice coordinate used by
-`dynamical_matrix!`.
+All ordinary BdG poles begin with unit residue. At the selected momentum, the
+poles listed in `aux.conden_band_indices` are removed from this sector so that
+they can be represented in `Green_SP_condensed_residues`.
 
-The selected soft-mode sector stored in `aux.conden_band_indices` is removed
-from the normal sector at the selected momentum `aux.conden_index`.
-
-This removal is purely a Green-function split convention:
-
-    G_SP = G_SP_normal + G_SP_condensed.
-
-For `selection_kind === :finite_size_minimum`, the removed pole is an ordinary
-finite-size BdG pole and is reinserted in `Green_SP_condensed_residues` with
-total weight `1`.
-
-For `selection_kind === :pinned`, the removed pole is reinserted with the total
-soft-min Green-function weight stored in `aux.condensate_weights`.
+No active soft-minimum weight is included in this Green function.
 """
 function Green_SP_normal_residues(
     sbs::SchwingerBosonSystem,
     q::Vec3,
     aux::SpectralCondensationAux,
 )
-    if isempty(aux.conden_band_indices)
-        error("SpectralCondensationAux has no selected condensed sector.")
-    end
+    isempty(aux.conden_band_indices) &&
+        error(
+            "SpectralCondensationAux has no selected sector.",
+        )
 
     H = zeros(ComplexF64, 12, 12)
     V = similar(H)
@@ -85,37 +76,32 @@ end
 """
     Green_SP_condensed_residues(sbs, q, aux)
 
-Return the spectral data for the selected soft-mode part of the saddle-point
-Green's function.
+Return the spectral data for the ordinary selected part of the saddle-point
+Green function.
 
-The returned objects are `ϵs, V, weights` such that
+The returned objects are `ϵs, V, weights`, with
 
-    G_SP_condensed(q, z)
-        = sum_l weights[l] * Ĩ[l,l] * v_l v_l† / (ϵs[l] - z).
+    G_SP_selected(q, z)
+        = sum_l weights[l] * Ĩ[l,l] *
+          v_l * v_l' / (ϵs[l] - z).
 
-This contribution has support only at the selected momentum stored in
-`aux.conden_index`. The selected bands are `aux.conden_band_indices`.
+This contribution has support only at the selected momentum. Every selected
+pole has ordinary unit BdG residue, independently of whether the soft-minimum
+constraint is active.
 
-Important convention:
-
-`aux.condensate_weights[l]` is the total pole multiplier in the split
-Green function. It is not merely the extra soft-min density-matrix correction.
-
-Therefore the intended semantics are:
-
-    finite_size_minimum: selected pole weight = 1
-    pinned:              selected pole weight = 1 + ξ
-
-where `ξ` is the extra soft-min occupation beyond the ordinary BdG pole.
+The additional enhanced occupations `ξᵢ` are stored separately in
+`aux.active_positive_weights` and must enter only through the active-constraint
+curvature blocks.
 """
 function Green_SP_condensed_residues(
     sbs::SchwingerBosonSystem,
     q::Vec3,
     aux::SpectralCondensationAux,
 )
-    if isempty(aux.conden_band_indices)
-        error("SpectralCondensationAux has no selected condensed sector.")
-    end
+    isempty(aux.conden_band_indices) &&
+        error(
+            "SpectralCondensationAux has no selected sector.",
+        )
 
     H = zeros(ComplexF64, 12, 12)
     V = similar(H)
@@ -134,7 +120,7 @@ function Green_SP_condensed_residues(
 
     if _same_momentum_mod1(q, qc)
         for l in aux.conden_band_indices
-            weights[l] = aux.condensate_weights[l]
+            weights[l] = 1.0
         end
     end
 

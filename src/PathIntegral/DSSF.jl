@@ -5,8 +5,8 @@
         sbs::SchwingerBosonSystem,
         q,
         energies,
-        Γ;
-        aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
+        Γ,
+        aux::SpectralCondensationAux
     )
 
 Compute the positive-frequency diagonal saddle-point DSSF using the
@@ -31,8 +31,8 @@ function dssf_SP(
     sbs::SchwingerBosonSystem,
     q,
     energies,
-    Γ;
-    aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
+    Γ,
+    aux::SpectralCondensationAux
 )
     num_energies = length(energies)
 
@@ -104,7 +104,7 @@ function dssf_SP(
                         Vk,
                         weights_k,
                         m,
-                        Uq[μ],
+                        Uq[μ]
                     )
 
                     weight =
@@ -123,10 +123,10 @@ function dssf_SP(
 
     # Separate fixed-ξ source-source curvature.
     if aux.selection_kind === :pinned
-        ϵs_c, Vc, _ = _selected_unit_residues(sbs, qc, aux)
+        ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, qc, aux)
 
-        active_weights = _active_positive_weights(ϵs_c, aux)
-        active_mask = _active_positive_mask(ϵs_c, aux)
+        active_weights = aux.active_positive_weights
+        active_mask = active_weights .> 0.0
         unit_active_weights = zeros(Float64, length(ϵs_c))
 
         Nflavor = 2.0
@@ -168,7 +168,7 @@ function dssf_SP(
                         Vc,
                         unit_active_weights,
                         i,
-                        Uq[μ],
+                        Uq[μ]
                     )
 
                     weight =
@@ -223,7 +223,7 @@ function dssf_SP(
                         Vn,
                         weights_n,
                         m,
-                        Uq[μ],
+                        Uq[μ]
                     )
 
                     weight =
@@ -251,7 +251,7 @@ function dssf_SP(
         ordinary_normal = ret_ordinary_normal,
         ordinary_condensed = ret_ordinary_condensed,
         active_constraint = ret_active_constraint,
-        total = ret_total,
+        total = ret_total
     )
 end
 
@@ -260,11 +260,11 @@ end
         sbs::SchwingerBosonSystem,
         q,
         energies,
-        Γ;
-        aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
+        Γ,
+        aux::SpectralCondensationAux;
         Nflavor::Real = 2,
         κtol::Real = 1e-12,
-        return_components::Bool = false,
+        return_components::Bool = false
     )
 
 Compute the Gaussian-fluctuation Fig. 1(b) contribution to the dynamical
@@ -273,12 +273,18 @@ spin structure factor.
 The Lorentzian helper `lorentzian(x, Γ)` uses Γ as the full width at half
 maximum. Therefore the retarded frequency broadening used here is η = Γ / 2.
 
+The RPA propagator uses the full fixed-ξ inverse kernel,
+
+    K(q,z) = Π0 - Πordinary(q,z) + Γξ(q,z).
+
 The external-bubble decomposition is
 
-    S_full = S_normal + S_mixed,
+    S_full = S_normal + S_selected,
 
-where `S_mixed` denotes the mixed normal-condensate external-internal bubble,
-not a condensate-condensate elastic bubble.
+where `S_normal` contains the ordinary normal-normal external-internal bubble,
+and `S_selected` contains the remaining selected-sector contribution, including
+the ordinary mixed selected-normal blocks and the fixed-ξ active-constraint
+block.
 
 The returned backward-compatible pair is
 
@@ -287,9 +293,9 @@ The returned backward-compatible pair is
 with
 
     ret_FL_normal      = S_normal D S_normal,
-    ret_FL_condensate = S_mixed D S_mixed
-                       + S_normal D S_mixed
-                       + S_mixed D S_normal.
+    ret_FL_condensate = S_selected D S_selected
+                       + S_normal D S_selected
+                       + S_selected D S_normal.
 
 If `return_components=true`, a named tuple is returned with the separated
 pieces:
@@ -306,11 +312,11 @@ function dssf_FL(
     sbs::SchwingerBosonSystem,
     q,
     energies,
-    Γ;
-    aux::SpectralCondensationAux = spectral_condensation_aux(sbs),
+    Γ,
+    aux::SpectralCondensationAux;
     Nflavor::Real = 2,
     κtol::Real = 1e-12,
-    return_components::Bool = false,
+    return_components::Bool = false
 )
     num_energies = length(energies)
 
@@ -349,8 +355,6 @@ function dssf_FL(
     fields = fields_all[active_indices]
     nϕ = length(fields)
 
-    Π0 = zeros(ComplexF64, nϕ, nϕ)
-    Π = zeros(ComplexF64, nϕ, nϕ)
     K = zeros(ComplexF64, nϕ, nϕ)
 
     Scol_normal = zeros(ComplexF64, nϕ)
@@ -360,32 +364,25 @@ function dssf_FL(
     Scol_mixed = zeros(ComplexF64, nϕ)
     Srow_mixed = zeros(ComplexF64, nϕ)
 
-    Pi0!(Π0, sbs, fields)
-
     # Γ is the FWHM used by `lorentzian`; η is the retarded HWHM.
     η = Γ / 2
 
     for (ie, energy) in enumerate(energies)
         z = energy + im * η
 
-        fill!(Π, 0.0 + 0.0im)
-        fill!(K, 0.0 + 0.0im)
-
-        polarization!(
-            Π,
+        rpa_kernel!(
+            K,
             sbs,
             fields,
             k_grid,
             q_reshaped,
-            z;
-            Nflavor = Nflavor,
-            aux = aux,
+            z,
+            aux;
+            Nflavor = Nflavor
         )
 
-        rpa_kernel!(K, Π0, Π)
-
         for μ in 1:3
-            external_internal_bubble!(
+            external_internal_bubble_normal!(
                 Scol_normal,
                 sbs,
                 fields,
@@ -395,11 +392,10 @@ function dssf_FL(
                 energy,
                 μ;
                 η = η,
-                aux = aux,
-                include_condensate = false,
+                aux = aux
             )
 
-            external_internal_bubble_row!(
+            external_internal_bubble_row_normal!(
                 Srow_normal,
                 sbs,
                 fields,
@@ -409,8 +405,7 @@ function dssf_FL(
                 energy,
                 μ;
                 η = η,
-                aux = aux,
-                include_condensate = false,
+                aux = aux
             )
 
             external_internal_bubble!(
@@ -424,7 +419,7 @@ function dssf_FL(
                 μ;
                 η = η,
                 aux = aux,
-                include_condensate = true,
+                Nflavor = Nflavor
             )
 
             external_internal_bubble_row!(
@@ -438,7 +433,7 @@ function dssf_FL(
                 μ;
                 η = η,
                 aux = aux,
-                include_condensate = true,
+                Nflavor = Nflavor
             )
 
             @. Scol_mixed = Scol_full - Scol_normal
@@ -482,7 +477,7 @@ function dssf_FL(
             mixed_normal = ret_FL_mixed_normal,
             cross = ret_FL_cross,
             condensate = ret_FL_condensate,
-            total = ret_FL_total,
+            total = ret_FL_total
         )
     end
 

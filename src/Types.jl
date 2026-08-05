@@ -60,83 +60,120 @@ end
 """
     SpectralCondensationAux
 
-Auxiliary container for splitting the saddle-point Green function into normal
-and selected soft-mode sectors.
+Auxiliary container describing the algebraically selected saddle-point BdG
+sector and the separate active soft-minimum occupation.
 
-The selected soft sector is specified by `conden_index` and
-`conden_band_indices`. The field `condensate_weights` stores the total pole
-multipliers used by `Green_SP_condensed_residues`.
+`conden_index` identifies the selected momentum on the finite `L × L`
+momentum grid. `conden_band_indices` contains the signed BdG pole indices
+belonging to the selected sector, including the negative-energy Nambu
+partners when present.
 
-Important convention:
+Every pole in the ordinary selected Green-function sector retains unit BdG
+residue. The additional active occupation is stored separately in
+`active_positive_weights`.
 
-`condensate_weights` are Green-function split weights, not the extra
-single-particle-density-matrix soft-min correction.
-
-For `selection_kind === :finite_size_minimum`, the selected mode is an ordinary
-finite-size BdG pole split out from the normal sector and reinserted in the
-condensed sector. Its total pole multiplier is therefore exactly `1`.
-
-For `selection_kind === :pinned`, the ordinary selected pole is already present
-with unit weight in the saddle-point density matrix, while the soft-min
-treatment adds an extra occupation `ξ`. Since the split Green function removes
-the selected pole from the normal sector, the condensed sector must carry the
-total pole multiplier `1 + ξ`.
-
-Thus:
-
-    finite_size_minimum: condensate_weights[band] = 1
-    pinned:              condensate_weights[band] = 1 + ξ
+`active_positive_weights` uses the full 12-pole indexing. Its nonzero entries
+are the enhanced occupations `ξᵢ` of active positive-energy selected modes.
+It is identically zero for `selection_kind === :finite_size_minimum`, and its
+negative-energy entries are always zero.
 """
 struct SpectralCondensationAux
     conden_index::Int
-    num_conden::Int
-
     selection_kind::Symbol
     conden_band_indices::Vector{Int}
-    condensate_weights::Vector{Float64}
+    active_positive_weights::Vector{Float64}
     min_gap::Float64
 end
 
 function SpectralCondensationAux(;
     conden_index::Int,
-    num_conden::Int,
     selection_kind::Symbol,
     conden_band_indices::Vector{Int},
-    condensate_weights::Vector{Float64},
+    active_positive_weights::Vector{Float64},
     min_gap::Float64,
 )
-    if !(selection_kind in (:pinned, :finite_size_minimum))
+    selection_kind in (:pinned, :finite_size_minimum) ||
         throw(ArgumentError(
-            "selection_kind must be either :pinned or :finite_size_minimum.",
+            "selection_kind must be either :pinned or " *
+            ":finite_size_minimum.",
+        ))
+
+    conden_index >= 1 ||
+        throw(ArgumentError(
+            "conden_index must be a positive integer.",
+        ))
+
+    selected_indices =
+        sort(unique(conden_band_indices))
+
+    isempty(selected_indices) &&
+        throw(ArgumentError(
+            "conden_band_indices cannot be empty.",
+        ))
+
+    any(l -> !(1 <= l <= 12), selected_indices) &&
+        throw(ArgumentError(
+            "conden_band_indices must contain BdG pole indices " *
+            "between 1 and 12.",
+        ))
+
+    any(l -> 1 <= l <= 6, selected_indices) ||
+        throw(ArgumentError(
+            "The selected sector must contain at least one " *
+            "positive-energy BdG pole.",
+        ))
+
+    length(active_positive_weights) == 12 ||
+        throw(ArgumentError(
+            "active_positive_weights must have length 12.",
+        ))
+
+    active_weights =
+        copy(active_positive_weights)
+
+    any(x -> !isfinite(x), active_weights) &&
+        throw(ArgumentError(
+            "active_positive_weights must be finite.",
+        ))
+
+    any(x -> x < 0.0, active_weights) &&
+        throw(ArgumentError(
+            "active_positive_weights must be nonnegative.",
+        ))
+
+    active_support =
+        findall(x -> x > 0.0, active_weights)
+
+    any(l -> l > 6, active_support) &&
+        throw(ArgumentError(
+            "Only positive-energy BdG poles may carry active weights.",
+        ))
+
+    any(l -> !(l in selected_indices), active_support) &&
+        throw(ArgumentError(
+            "Every active positive-energy mode must belong to " *
+            "conden_band_indices.",
+        ))
+
+    if selection_kind === :finite_size_minimum &&
+       !isempty(active_support)
+
+        throw(ArgumentError(
+            "A finite-size selected minimum cannot carry an active " *
+            "soft-minimum occupation.",
         ))
     end
 
-    if !(1 <= conden_index)
-        throw(ArgumentError("conden_index must be a positive integer."))
-    end
-
-    if num_conden <= 0
-        throw(ArgumentError("num_conden must be positive."))
-    end
-
-    if isempty(conden_band_indices)
-        throw(ArgumentError("conden_band_indices cannot be empty."))
-    end
-
-    if any(l -> !(1 <= l <= 12), conden_band_indices)
-        throw(ArgumentError("conden_band_indices must contain BdG pole indices between 1 and 12."))
-    end
-
-    if length(condensate_weights) != 12
-        throw(ArgumentError("condensate_weights must have length 12."))
-    end
+    isfinite(min_gap) && min_gap >= 0.0 ||
+        throw(ArgumentError(
+            "min_gap must be finite and nonnegative.",
+        ))
 
     return SpectralCondensationAux(
         conden_index,
-        num_conden,
         selection_kind,
-        copy(conden_band_indices),
-        copy(condensate_weights),
+        selected_indices,
+        active_weights,
         min_gap,
     )
 end
