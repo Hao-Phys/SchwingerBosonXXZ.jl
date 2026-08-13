@@ -49,4 +49,7 @@ include("PathIntegral/ExternalInternalBubble.jl")
 include("PathIntegral/DSSF.jl")
 export dssf_SP, dssf_FL
 
+include("SaddlePointFreeEnergy.jl")
+export saddle_point_free_energy
+
 end

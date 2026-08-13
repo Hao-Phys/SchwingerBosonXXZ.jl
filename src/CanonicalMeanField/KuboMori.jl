@@ -28,8 +28,8 @@ function condensation_results!(sbs::SchwingerBosonSystem, aux::CondensationAux)
     end
 
     Nu = L^2
-    i = (conden_index - 1) % L + 1
-    j = (conden_index - 1) ÷ L + 1
+    i = (conden_index - 1) ÷ L + 1
+    j = (conden_index - 1) % L + 1
     q_condensed = Vec3([(i-1)/L, (j-1)/L, 0.0])
 
     D = zeros(ComplexF64, 12, 12)
