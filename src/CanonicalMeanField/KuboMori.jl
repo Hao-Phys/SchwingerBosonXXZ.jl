@@ -70,7 +70,7 @@ function condensation_results!(sbs::SchwingerBosonSystem, aux::CondensationAux)
         aux.num_conden = num_cs
         return tmp
     else
-        @warn "Negative condensate fraction detected: ξ = $ξ. Reoptimizing μ₀ without the condensation shift to find the true minimum in the normal phase."
+        # @warn "Negative condensate fraction detected: ξ = $ξ. Reoptimizing μ₀ without the condensation shift to find the true minimum in the normal phase."
         aux.conden_index = nothing
         # Un-shift μ0 to remove the artificial shift introduced by the condensation search.
         μ0_unshifted = copy(sbs.mean_fields[13:15]) .+ aux.c_shift
