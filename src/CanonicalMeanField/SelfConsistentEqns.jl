@@ -28,7 +28,7 @@ function self_consistent_mean_fields!(f, ϕ, sbs::SchwingerBosonSystem; options_
         q = Vec3([(i-1)/L, (j-1)/L, 0.0])
         single_particle_density_matrix!(P, D, V, tmp, sbs, q)
 
-        linear_idx = (j-1)*L + i
+        linear_idx = (i-1)*L + j
         if linear_idx == aux.conden_index && !isnothing(den_mat_conden)
             P .+= den_mat_conden
         end
