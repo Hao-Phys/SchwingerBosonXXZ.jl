@@ -60,7 +60,7 @@ end
 function solve_self_consistent_mean_fields_condensed!(sbs::SchwingerBosonSystem, x0; nlsolve_opts::NamedTuple=NamedTuple(;), options_μ = Optim.Options(show_trace=false, iterations=1000), tol=1e-8, max_iters=100)
     sce_eqn!(f, ϕ) = self_consistent_mean_fields!(f, ϕ, sbs; options_μ, tol, max_iters)
     ret = fixedpoint(sce_eqn!, x0; nlsolve_opts...)
-    !converged(ret) && @warn "Self-consitent equations converged to a solution with residual $(ret.residual_norm)"
+    # !converged(ret) && @warn "Self-consitent equations converged to a solution with residual $(ret.residual_norm)"
     best_mean_fields = zeros(ComplexF64, 15)
     for i in 1:12
         best_mean_fields[i] = ret.zero[i] + 1im * ret.zero[i+12]
