@@ -1,6 +1,6 @@
 """
     search_for_condensation_shift!(sbs::SchwingerBosonSystem, y;
-        tol=1e-8, max_iters=1000)
+        tol=1e-12, max_iters=1000)
 
 Search for the `postive_shift` such that the dynamical matrix is positive definite and the diagonal condensation shift `c_shift` to add to the dynamical matrix `D` such that its smallest Bogoliubov eigenvalue equals `condensation_ϵ`.
 
@@ -15,7 +15,7 @@ since it is the binding constraint that stabilises the full spectrum.
 - `y`: parameter vector passed to `set_μ0!`.
 
 # Keyword arguments
-- `tol=1e-8`: bisection convergence criterion on `eigval_min - condensation_ϵ`.
+- `tol=1e-12`: bisection convergence criterion on `eigval_min - condensation_ϵ`.
 - `max_iters=1000`: maximum bisection iterations per momentum point.
 
 # Returns
@@ -198,7 +198,7 @@ function f_y!(sbs::SchwingerBosonSystem, aux::CondensationAux, y; tol=1e-12, max
     end
 end
 
-function variational_free_energy(sbs::SchwingerBosonSystem; options = Optim.Options(show_trace=false, iterations=1000), tol=1e-8, max_iters=100)
+function variational_free_energy(sbs::SchwingerBosonSystem; options = Optim.Options(iterations=1000, g_tol=1e-12), tol=1e-12, max_iters=1000)
     D = zeros(ComplexF64, 12, 12)
     V = zeros(ComplexF64, 12, 12)
 

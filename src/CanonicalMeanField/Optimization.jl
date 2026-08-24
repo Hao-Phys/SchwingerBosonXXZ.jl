@@ -1,5 +1,5 @@
 function optimize_μ0!(sbs::SchwingerBosonSystem, μ0, aux::CondensationAux; 
-    options = Optim.Options(iterations=1000, g_tol=1e-12), tol=1e-12, max_iters=500)
+    options = Optim.Options(iterations=1000, g_tol=1e-12), tol=1e-12, max_iters=1000)
     f!(y) = f_y!(sbs, aux, y; tol, max_iters)
     ret = optimize(f!, μ0, Optim.NelderMead(), options)
     y_minimizer = ret.minimizer
