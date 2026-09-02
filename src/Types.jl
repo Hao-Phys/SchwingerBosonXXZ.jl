@@ -1,3 +1,44 @@
+const Vec3 = SVector{3, Float64}
+
+function _normalized_external_field_direction(direction)
+    direction isa Union{Tuple, AbstractVector} ||
+        throw(ArgumentError(
+            "h_ext_direction must be a length-3 Tuple or AbstractVector.",
+        ))
+
+    length(direction) == 3 ||
+        throw(ArgumentError("h_ext_direction must have length 3."))
+
+    components = try
+        Vec3(ntuple(i -> Float64(direction[i]), 3))
+    catch error
+        error isa InterruptException && rethrow()
+        throw(ArgumentError(
+            "h_ext_direction must contain three real-valued components.",
+        ))
+    end
+
+    all(isfinite, components) ||
+        throw(ArgumentError("h_ext_direction must be finite."))
+
+    magnitude = norm(components)
+    magnitude > 0.0 ||
+        throw(ArgumentError("h_ext_direction must be nonzero."))
+
+    return components / magnitude
+end
+
+function _external_field_magnitude(h_ext::Real)
+    value = Float64(h_ext)
+
+    isfinite(value) ||
+        throw(ArgumentError("h_ext must be finite."))
+    value >= 0.0 ||
+        throw(ArgumentError("h_ext must be nonnegative."))
+
+    return value
+end
+
 mutable struct SchwingerBosonSystem
     J :: Float64 # Nearest-neighbor exchange interaction (units of energy)
     Δ :: Float64 # XXZ anisotropy
@@ -6,14 +47,26 @@ mutable struct SchwingerBosonSystem
     L :: Int # Linear size of the system, Nu = L²
     h_SB :: Float64 # Small symmetry-breaking field
     θs :: Vector{Float64} # Angle of the symmetry-breaking field
+    h_ext :: Float64 # Uniform external magnetic-field magnitude (in units of J)
+    h_ext_direction :: Vec3 # Normalized Cartesian external-field direction
     mean_fields :: Vector{ComplexF64} # Dynamic variables to store mean fields
     Δμs :: Vector{Float64} # The difference between μ (the physical chemical potential) and μ₀ (the mean-field (variational) chemical potential)
     α_dcoups :: Matrix{Float64} # Continuous parameter for the mean-field decoupling scheme, with dimensions (2, 3) for the two types of decouplings and three links
     condensation_ϵ :: Float64 # Energy threshold for identifying condensation (in units of J), default 0.0
 end
 
-# Constructor with default values for mean fields, Δμs, and α_dcoups
-SchwingerBosonSystem(
+"""
+    SchwingerBosonSystem(J, Δ, S, T, L; kwargs...)
+
+Construct a triangular-lattice Schwinger-boson system.
+
+`h_SB` and `θs` define the sublattice-dependent symmetry-breaking field used
+to select a local ordered state. The separate physical external magnetic field
+has magnitude `h_ext` (in units of `J`) and a uniform Cartesian direction
+`h_ext_direction`. The direction may be a length-3 tuple or vector and is
+normalized by the constructor.
+"""
+function SchwingerBosonSystem(
     J::Float64,
     Δ::Float64,
     S::Float64,
@@ -21,32 +74,73 @@ SchwingerBosonSystem(
     L::Int;
     h_SB::Float64 = 0.0,
     θs::Vector{Float64} = zeros(3),
+    h_ext::Real = 0.0,
+    h_ext_direction = (0.0, 0.0, 1.0),
     α_dcoups::Matrix{Float64} = zeros(2, 3),
     condensation_ϵ::Float64 = 0.0,
-) = SchwingerBosonSystem(
-    J,
-    Δ,
-    S,
-    T,
-    L,
-    h_SB,
-    θs,
-    zeros(ComplexF64, 15),
-    zeros(3),
-    α_dcoups,
-    condensation_ϵ,
 )
+    h_ext_value = _external_field_magnitude(h_ext)
+    direction = _normalized_external_field_direction(h_ext_direction)
+
+    return SchwingerBosonSystem(
+        J,
+        Δ,
+        S,
+        T,
+        L,
+        h_SB,
+        θs,
+        h_ext_value,
+        direction,
+        zeros(ComplexF64, 15),
+        zeros(3),
+        α_dcoups,
+        condensation_ϵ,
+    )
+end
 
 function Base.show(io::IO, ::MIME"text/plain", sbs::SchwingerBosonSystem)
-    (; J, Δ, S, T, L, mean_fields, α_dcoups) = sbs
+    (; J, Δ, S, T, L, h_ext, h_ext_direction, mean_fields, α_dcoups) = sbs
     printstyled(io, "SchwingerBosonSystem", "\n"; bold=true, color=:underline)
-    println(io, "J = ", J, " Δ = ", Δ, " S = ", S, " T = ", T, " L = ", L, " α_dcoups = ", α_dcoups)
+    println(
+        io,
+        "J = ", J,
+        " Δ = ", Δ,
+        " S = ", S,
+        " T = ", T,
+        " L = ", L,
+        " h_ext = ", h_ext,
+        " h_ext_direction = ", h_ext_direction,
+        " α_dcoups = ", α_dcoups,
+    )
     println(io, "Mean field values: ")
     for i in 1:3
-        println("A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])
-        println("C[$i]= ", mean_fields[i+6], " D[$i]= ", mean_fields[i+9])
-        println("μ0[$i]= ", mean_fields[i+12])
+        println(io, "A[$i]= ", mean_fields[i], " B[$i]= ", mean_fields[i+3])
+        println(io, "C[$i]= ", mean_fields[i+6], " D[$i]= ", mean_fields[i+9])
+        println(io, "μ0[$i]= ", mean_fields[i+12])
     end
+end
+
+"""
+    set_external_field!(sbs, h_ext, direction=sbs.h_ext_direction)
+
+Set the uniform external magnetic field. `h_ext` is a nonnegative magnitude in
+units of `J`. `direction` may be a length-3 tuple or vector and is normalized
+before either field property is changed.
+"""
+function set_external_field!(
+    sbs::SchwingerBosonSystem,
+    h_ext::Real,
+    direction = sbs.h_ext_direction,
+)
+    h_ext_value = _external_field_magnitude(h_ext)
+    normalized_direction =
+        _normalized_external_field_direction(direction)
+
+    sbs.h_ext = h_ext_value
+    sbs.h_ext_direction = normalized_direction
+
+    return sbs
 end
 
 mutable struct CondensationAux
@@ -205,7 +299,6 @@ function set_μ0!(sbs::SchwingerBosonSystem, μ0)
     end
 end
 
-const Vec3 = SVector{3, Float64}
 const Mat3 = SMatrix{3, 3, Float64, 9}
 
 # The z-component does not matter here, as we are only interested in the 2D model

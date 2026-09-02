@@ -15,7 +15,17 @@ P_link(link::Int, σ, J₊, J₋, As, Ds, α_dcoups) = -0.5 * (J₊*(1+α_dcoups
 
 function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_reshaped::Vec3)
     D .= 0.0
-    (; J, Δ, mean_fields, h_SB, θs, S, α_dcoups) = sbs
+    (;
+        J,
+        Δ,
+        mean_fields,
+        h_SB,
+        θs,
+        h_ext,
+        h_ext_direction,
+        S,
+        α_dcoups,
+    ) = sbs
     J₊ = J * (Δ + 1) / 2
     J₋ = J * (Δ - 1) / 2
 
@@ -36,9 +46,31 @@ function dynamical_matrix!(D::Matrix{ComplexF64}, sbs::SchwingerBosonSystem, q_r
     D12 = view(D, 1:6, 7:12)
     D21 = view(D, 7:12, 1:6)
 
+    # The physical external field is uniform across the three sublattices.
+    # Unlike the symmetry-breaking field below, it may point anywhere in spin
+    # space. The hole block must therefore use the transpose; this distinction
+    # matters for the antisymmetric Pauli matrix σy.
+    external_spin_matrix =
+        -S * h_ext *
+        (
+            h_ext_direction[1] * σs[1] +
+            h_ext_direction[2] * σs[2] +
+            h_ext_direction[3] * σs[3]
+        )
+
     for α in 1:3
-        @. D11[2α-1:2α, 2α-1:2α] += -S*h_SB*(cos(θs[α])*σs[1] + sin(θs[α]) * σs[3])
-        @. D22[2α-1:2α, 2α-1:2α] += -S*h_SB*(cos(θs[α])*σs[1] + sin(θs[α]) * σs[3])
+        particle_block = view(D11, 2α-1:2α, 2α-1:2α)
+        hole_block = view(D22, 2α-1:2α, 2α-1:2α)
+
+        symmetry_breaking_spin_matrix =
+            -S * h_SB *
+            (cos(θs[α]) * σs[1] + sin(θs[α]) * σs[3])
+
+        particle_block .+= symmetry_breaking_spin_matrix
+        hole_block .+= transpose(symmetry_breaking_spin_matrix)
+
+        particle_block .+= external_spin_matrix
+        hole_block .+= transpose(external_spin_matrix)
 
         phase = link_phase(α, q_reshaped)
         for σ in 1:2

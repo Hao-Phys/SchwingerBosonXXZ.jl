@@ -8,6 +8,7 @@ using HCubature
 
 include("Types.jl")
 export SchwingerBosonSystem, set_mean_fields!, set_μ0!, set_ϕ!, set_classical_mean_fields!
+export set_external_field!
 export SpectralCondensationAux, easy_axis_angles, easy_plane_angles
 
 include("CanonicalMeanField/FiniteSizeTools.jl")
