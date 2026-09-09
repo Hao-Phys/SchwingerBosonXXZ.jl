@@ -227,6 +227,90 @@ function external_internal_bubble_normal!(
     return Sβ
 end
 
+"""
+    build_external_internal_bubble_normal_cache(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)
+
+Build a `VectorChannelCache` for `external_internal_bubble_normal!` at fixed
+`(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)`. Mirrors its loop nest
+exactly, deferring only the frequency-dependent `denom`. Note this cache is
+specific to `μ`, since `Uq = external_vertex(μ, q_ext)` enters the
+coherence trace.
+"""
+function build_external_internal_bubble_normal_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    μ::Int,
+    aux::SpectralCondensationAux,
+)
+    nϕ = length(fields)
+
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    @boundscheck @assert 1 <= μ <= 3
+
+    (; L) = sbs
+
+    Nu = L^2
+    Ns = 3Nu
+    βtemp = _inverse_temperature(sbs)
+
+    Uq = external_vertex(μ, q_ext)
+    Vβ = zeros(ComplexF64, 12, 12)
+
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
+
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ]
+
+    for k in kgrid
+        kq = k + q_reshaped
+
+        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vβ, sbs, β, kq, k)
+
+            for m in eachindex(ϵs_k)
+                iszero(weights_k[m]) && continue
+
+                Em = ϵs_k[m]
+                nb_m = _pole_bose(Em, βtemp)
+
+                for n in eachindex(ϵs_kq)
+                    iszero(weights_kq[n]) && continue
+
+                    En = ϵs_kq[n]
+                    nb_n = _pole_bose(En, βtemp)
+
+                    occdiff = nb_n - nb_m
+                    iszero(occdiff) && continue
+
+                    coherence = _residue_vertex_trace(
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Vβ,
+                        Vk,
+                        weights_k,
+                        m,
+                        Uq
+                    )
+
+                    iβ == 1 && push!(ΔEs, real(Em - En))
+                    push!(residues[iβ], prefactor * coherence * occdiff)
+                end
+            end
+        end
+    end
+
+    return VectorChannelCache(ΔEs, residues)
+end
+
 
 """
     external_internal_bubble_row_normal!(
@@ -326,6 +410,87 @@ function external_internal_bubble_row_normal!(
     end
 
     return Sα
+end
+
+"""
+    build_external_internal_bubble_row_normal_cache(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)
+
+Build a `VectorChannelCache` for `external_internal_bubble_row_normal!` at
+fixed `(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)`.
+"""
+function build_external_internal_bubble_row_normal_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    μ::Int,
+    aux::SpectralCondensationAux,
+)
+    nϕ = length(fields)
+
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    @boundscheck @assert 1 <= μ <= 3
+
+    (; L) = sbs
+
+    Nu = L^2
+    Ns = 3Nu
+    βtemp = _inverse_temperature(sbs)
+
+    Umq = external_vertex(μ, -q_ext)
+    Vrow = zeros(ComplexF64, 12, 12)
+
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
+
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ]
+
+    for k in kgrid
+        kq = k + q_reshaped
+
+        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+
+        for (iα, α) in pairs(fields)
+            row_internal_vertices!(Vrow, sbs, α, k, kq)
+
+            for m in eachindex(ϵs_k)
+                iszero(weights_k[m]) && continue
+
+                Em = ϵs_k[m]
+                nb_m = _pole_bose(Em, βtemp)
+
+                for n in eachindex(ϵs_kq)
+                    iszero(weights_kq[n]) && continue
+
+                    En = ϵs_kq[n]
+                    nb_n = _pole_bose(En, βtemp)
+
+                    occdiff = nb_n - nb_m
+                    iszero(occdiff) && continue
+
+                    coherence = _residue_vertex_trace(
+                        Vk,
+                        weights_k,
+                        m,
+                        Vrow,
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Umq
+                    )
+
+                    iα == 1 && push!(ΔEs, real(Em - En))
+                    push!(residues[iα], prefactor * coherence * occdiff)
+                end
+            end
+        end
+    end
+
+    return VectorChannelCache(ΔEs, residues)
 end
 
 
@@ -481,6 +646,129 @@ function external_internal_bubble_condensate!(
     return Sβ
 end
 
+"""
+    build_external_internal_bubble_condensate_cache(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)
+
+Build a `VectorChannelCache` for `external_internal_bubble_condensate!` at
+fixed `(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)`.
+"""
+function build_external_internal_bubble_condensate_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    μ::Int,
+    aux::SpectralCondensationAux,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ]
+
+    isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
+
+    Nu = length(kgrid)
+    Nu > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    (; L) = sbs
+
+    Ns = 3L^2
+    βtemp = _inverse_temperature(sbs)
+
+    qc = _spectral_condensation_momentum(aux, L)
+
+    Uq = external_vertex(μ, q_ext)
+    Vβ = zeros(ComplexF64, 12, 12)
+
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
+
+    # Selected pole on the k line, normal propagator on the k + q line.
+    kc = qc
+    kn = qc + q_reshaped
+
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+
+    for (iβ, β) in pairs(fields)
+        internal_vertices!(Vβ, sbs, β, kn, kc)
+
+        for m in eachindex(ϵs_c)
+            iszero(weights_c[m]) && continue
+
+            Em = ϵs_c[m]
+            nb_m = _pole_bose(Em, βtemp)
+
+            for n in eachindex(ϵs_n)
+                iszero(weights_n[n]) && continue
+
+                En = ϵs_n[n]
+                nb_n = _pole_bose(En, βtemp)
+
+                occdiff = nb_n - nb_m
+                iszero(occdiff) && continue
+
+                coherence = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    n,
+                    Vβ,
+                    Vc,
+                    weights_c,
+                    m,
+                    Uq
+                )
+
+                iβ == 1 && push!(ΔEs, real(Em - En))
+                push!(residues[iβ], prefactor * coherence * occdiff)
+            end
+        end
+    end
+
+    # Normal propagator on the k line, selected pole on the k + q line.
+    kn = qc - q_reshaped
+    kc = qc
+
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+
+    for (iβ, β) in pairs(fields)
+        internal_vertices!(Vβ, sbs, β, kc, kn)
+
+        for m in eachindex(ϵs_n)
+            iszero(weights_n[m]) && continue
+
+            Em = ϵs_n[m]
+            nb_m = _pole_bose(Em, βtemp)
+
+            for n in eachindex(ϵs_c)
+                iszero(weights_c[n]) && continue
+
+                En = ϵs_c[n]
+                nb_n = _pole_bose(En, βtemp)
+
+                occdiff = nb_n - nb_m
+                iszero(occdiff) && continue
+
+                coherence = _residue_vertex_trace(
+                    Vc,
+                    weights_c,
+                    n,
+                    Vβ,
+                    Vn,
+                    weights_n,
+                    m,
+                    Uq
+                )
+
+                iβ == 1 && push!(ΔEs, real(Em - En))
+                push!(residues[iβ], prefactor * coherence * occdiff)
+            end
+        end
+    end
+
+    return VectorChannelCache(ΔEs, residues)
+end
+
 
 """
     external_internal_bubble_row_condensate!(
@@ -634,6 +922,129 @@ function external_internal_bubble_row_condensate!(
     return Sα
 end
 
+"""
+    build_external_internal_bubble_row_condensate_cache(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)
+
+Build a `VectorChannelCache` for `external_internal_bubble_row_condensate!`
+at fixed `(sbs, fields, kgrid, q_ext, q_reshaped, μ, aux)`.
+"""
+function build_external_internal_bubble_row_condensate_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    μ::Int,
+    aux::SpectralCondensationAux,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ]
+
+    isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
+
+    Nu = length(kgrid)
+    Nu > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    (; L) = sbs
+
+    Ns = 3L^2
+    βtemp = _inverse_temperature(sbs)
+
+    qc = _spectral_condensation_momentum(aux, L)
+
+    Umq = external_vertex(μ, -q_ext)
+    Vrow = zeros(ComplexF64, 12, 12)
+
+    prefactor = -1 / (4 * sqrt(Ns * Nu))
+
+    # Selected pole on the k line, normal propagator on the k + q line.
+    kc = qc
+    kn = qc + q_reshaped
+
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kn)
+
+        for m in eachindex(ϵs_c)
+            iszero(weights_c[m]) && continue
+
+            Em = ϵs_c[m]
+            nb_m = _pole_bose(Em, βtemp)
+
+            for n in eachindex(ϵs_n)
+                iszero(weights_n[n]) && continue
+
+                En = ϵs_n[n]
+                nb_n = _pole_bose(En, βtemp)
+
+                occdiff = nb_n - nb_m
+                iszero(occdiff) && continue
+
+                coherence = _residue_vertex_trace(
+                    Vc,
+                    weights_c,
+                    m,
+                    Vrow,
+                    Vn,
+                    weights_n,
+                    n,
+                    Umq
+                )
+
+                iα == 1 && push!(ΔEs, real(Em - En))
+                push!(residues[iα], prefactor * coherence * occdiff)
+            end
+        end
+    end
+
+    # Normal propagator on the k line, selected pole on the k + q line.
+    kn = qc - q_reshaped
+    kc = qc
+
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kn, kc)
+
+        for m in eachindex(ϵs_n)
+            iszero(weights_n[m]) && continue
+
+            Em = ϵs_n[m]
+            nb_m = _pole_bose(Em, βtemp)
+
+            for n in eachindex(ϵs_c)
+                iszero(weights_c[n]) && continue
+
+                En = ϵs_c[n]
+                nb_n = _pole_bose(En, βtemp)
+
+                occdiff = nb_n - nb_m
+                iszero(occdiff) && continue
+
+                coherence = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    m,
+                    Vrow,
+                    Vc,
+                    weights_c,
+                    n,
+                    Umq
+                )
+
+                iα == 1 && push!(ΔEs, real(Em - En))
+                push!(residues[iα], prefactor * coherence * occdiff)
+            end
+        end
+    end
+
+    return VectorChannelCache(ΔEs, residues)
+end
+
 function external_internal_bubble_active_constraint!(
     Sβ::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
@@ -769,6 +1180,136 @@ function external_internal_bubble_active_constraint!(
     return Sβ
 end
 
+"""
+    build_external_internal_bubble_active_constraint_cache(sbs, fields, q_ext, q_reshaped, μ, aux; Nflavor = 2)
+
+Build a `VectorChannelCache` for `external_internal_bubble_active_constraint!`
+at fixed `(sbs, fields, q_ext, q_reshaped, μ, aux)`. Same `denom` sign
+convention as `build_active_constraint_kernel_cache`: the first ordering's
+`denom = Ei - En + z` gives ΔE `Ei - En`; the second ordering's `denom =
+Ei - Em - z = -(z + (Em - Ei))` gives ΔE `Em - Ei` with a sign-flipped
+residue.
+"""
+function build_external_internal_bubble_active_constraint_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    μ::Int,
+    aux::SpectralCondensationAux;
+    Nflavor::Real = 2,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ]
+
+    aux.selection_kind === :pinned || return VectorChannelCache(ΔEs, residues)
+    isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
+
+    @boundscheck @assert 1 <= μ <= 3
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+
+    Uq = external_vertex(μ, q_ext)
+    Vβ = zeros(ComplexF64, 12, 12)
+
+    kc = qc
+
+    ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, kc, aux)
+
+    active_weights = aux.active_positive_weights
+    active_mask = active_weights .> 0.0
+    unit_active_weights = zeros(Float64, length(ϵs_c))
+
+    kn = qc + q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iβ, β) in pairs(fields)
+        internal_vertices!(Vβ, sbs, β, kn, kc)
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for n in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   n <= length(active_mask) &&
+                   active_mask[n]
+                    continue
+                end
+
+                En = ϵs_n[n]
+
+                coherence = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    n,
+                    Vβ,
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Uq
+                )
+
+                iβ == 1 && push!(ΔEs, real(Ei - En))
+                push!(residues[iβ], Nflavor * ξi * coherence)
+            end
+        end
+    end
+
+    kn = qc - q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iβ, β) in pairs(fields)
+        internal_vertices!(Vβ, sbs, β, kc, kn)
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for m in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   m <= length(active_mask) &&
+                   active_mask[m]
+                    continue
+                end
+
+                Em = ϵs_n[m]
+
+                coherence = _residue_vertex_trace(
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Vβ,
+                    Vn,
+                    weights_n,
+                    m,
+                    Uq
+                )
+
+                iβ == 1 && push!(ΔEs, real(Em - Ei))
+                push!(residues[iβ], -Nflavor * ξi * coherence)
+            end
+        end
+    end
+
+    return VectorChannelCache(ΔEs, residues)
+end
+
 function external_internal_bubble_row_active_constraint!(
     Sα::AbstractVector{ComplexF64},
     sbs::SchwingerBosonSystem,
@@ -902,6 +1443,134 @@ function external_internal_bubble_row_active_constraint!(
     end
 
     return Sα
+end
+
+"""
+    build_external_internal_bubble_row_active_constraint_cache(sbs, fields, q_ext, q_reshaped, μ, aux; Nflavor = 2)
+
+Build a `VectorChannelCache` for
+`external_internal_bubble_row_active_constraint!` at fixed `(sbs, fields,
+q_ext, q_reshaped, μ, aux)`. Same `denom` sign convention as
+`build_external_internal_bubble_active_constraint_cache`.
+"""
+function build_external_internal_bubble_row_active_constraint_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q_ext::Vec3,
+    q_reshaped::Vec3,
+    μ::Int,
+    aux::SpectralCondensationAux;
+    Nflavor::Real = 2,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ]
+
+    aux.selection_kind === :pinned || return VectorChannelCache(ΔEs, residues)
+    isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
+
+    @boundscheck @assert 1 <= μ <= 3
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+
+    Umq = external_vertex(μ, -q_ext)
+    Vrow = zeros(ComplexF64, 12, 12)
+
+    kc = qc
+
+    ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, kc, aux)
+
+    active_weights = aux.active_positive_weights
+    active_mask = active_weights .> 0.0
+    unit_active_weights = zeros(Float64, length(ϵs_c))
+
+    kn = qc + q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kn)
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for n in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   n <= length(active_mask) &&
+                   active_mask[n]
+                    continue
+                end
+
+                En = ϵs_n[n]
+
+                coherence = _residue_vertex_trace(
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Vrow,
+                    Vn,
+                    weights_n,
+                    n,
+                    Umq
+                )
+
+                iα == 1 && push!(ΔEs, real(Ei - En))
+                push!(residues[iα], Nflavor * ξi * coherence)
+            end
+        end
+    end
+
+    kn = qc - q_reshaped
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kn, kc)
+
+        for i in eachindex(ϵs_c)
+            ξi = active_weights[i]
+            iszero(ξi) && continue
+
+            Ei = ϵs_c[i]
+
+            fill!(unit_active_weights, 0.0)
+            unit_active_weights[i] = 1.0
+
+            for m in eachindex(ϵs_n)
+                if exclude_active_intermediate &&
+                   m <= length(active_mask) &&
+                   active_mask[m]
+                    continue
+                end
+
+                Em = ϵs_n[m]
+
+                coherence = _residue_vertex_trace(
+                    Vn,
+                    weights_n,
+                    m,
+                    Vrow,
+                    Vc,
+                    unit_active_weights,
+                    i,
+                    Umq
+                )
+
+                iα == 1 && push!(ΔEs, real(Em - Ei))
+                push!(residues[iα], -Nflavor * ξi * coherence)
+            end
+        end
+    end
+
+    return VectorChannelCache(ΔEs, residues)
 end
 
 """

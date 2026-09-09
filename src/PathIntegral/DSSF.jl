@@ -355,12 +355,56 @@ function dssf_FL(
     fields = fields_all[active_indices]
     nϕ = length(fields)
 
+    # Π0 and every piece's frequency-independent data (Bogoliubov
+    # diagonalizations, vertex matrices, coherence traces, all fixed- and
+    # full-k-grid momentum sums) do not depend on z, so they are all built
+    # once here rather than redone at every energy point in the loop below.
+    # The bubble caches also depend on μ (via the external vertex), so
+    # there are three of each, built once per μ rather than once total.
+    Π0 = zeros(ComplexF64, nϕ, nϕ)
+    Pi0!(Π0, sbs, fields)
+
+    normal_cache =
+        build_polarization_normal_cache(sbs, fields, k_grid, q_reshaped, aux; Nflavor)
+    condensate_normal_cache =
+        build_polarization_condensate_normal_cache(sbs, fields, k_grid, q_reshaped, aux; Nflavor)
+    condensate_condensate_cache =
+        build_polarization_condensate_condensate_cache(sbs, fields, k_grid, q_reshaped, aux; Nflavor)
+    active_constraint_cache =
+        build_active_constraint_kernel_cache(sbs, fields, q_reshaped, aux; Nflavor)
+
+    bubble_normal_cache = Vector{VectorChannelCache}(undef, 3)
+    bubble_row_normal_cache = Vector{VectorChannelCache}(undef, 3)
+    bubble_condensate_cache = Vector{VectorChannelCache}(undef, 3)
+    bubble_row_condensate_cache = Vector{VectorChannelCache}(undef, 3)
+    bubble_active_constraint_cache = Vector{VectorChannelCache}(undef, 3)
+    bubble_row_active_constraint_cache = Vector{VectorChannelCache}(undef, 3)
+
+    for μ in 1:3
+        bubble_normal_cache[μ] = build_external_internal_bubble_normal_cache(
+            sbs, fields, k_grid, q_ext, q_reshaped, μ, aux,
+        )
+        bubble_row_normal_cache[μ] = build_external_internal_bubble_row_normal_cache(
+            sbs, fields, k_grid, q_ext, q_reshaped, μ, aux,
+        )
+        bubble_condensate_cache[μ] = build_external_internal_bubble_condensate_cache(
+            sbs, fields, k_grid, q_ext, q_reshaped, μ, aux,
+        )
+        bubble_row_condensate_cache[μ] = build_external_internal_bubble_row_condensate_cache(
+            sbs, fields, k_grid, q_ext, q_reshaped, μ, aux,
+        )
+        bubble_active_constraint_cache[μ] = build_external_internal_bubble_active_constraint_cache(
+            sbs, fields, q_ext, q_reshaped, μ, aux; Nflavor,
+        )
+        bubble_row_active_constraint_cache[μ] = build_external_internal_bubble_row_active_constraint_cache(
+            sbs, fields, q_ext, q_reshaped, μ, aux; Nflavor,
+        )
+    end
+
     K = zeros(ComplexF64, nϕ, nϕ)
 
     Scol_normal = zeros(ComplexF64, nϕ)
     Srow_normal = zeros(ComplexF64, nϕ)
-    Scol_full = zeros(ComplexF64, nϕ)
-    Srow_full = zeros(ComplexF64, nϕ)
     Scol_mixed = zeros(ComplexF64, nϕ)
     Srow_mixed = zeros(ComplexF64, nϕ)
 
@@ -370,74 +414,30 @@ function dssf_FL(
     for (ie, energy) in enumerate(energies)
         z = energy + im * η
 
-        rpa_kernel!(
+        rpa_kernel_cached!(
             K,
-            sbs,
-            fields,
-            k_grid,
-            q_reshaped,
+            Π0,
+            normal_cache,
+            condensate_normal_cache,
+            condensate_condensate_cache,
+            active_constraint_cache,
             z,
-            aux;
-            Nflavor = Nflavor
         )
 
         for μ in 1:3
-            external_internal_bubble_normal!(
-                Scol_normal,
-                sbs,
-                fields,
-                k_grid,
-                q_ext,
-                q_reshaped,
-                energy,
-                μ;
-                η = η,
-                aux = aux
-            )
+            fill!(Scol_normal, 0.0 + 0.0im)
+            vector_channel_sweep!(Scol_normal, bubble_normal_cache[μ], z)
 
-            external_internal_bubble_row_normal!(
-                Srow_normal,
-                sbs,
-                fields,
-                k_grid,
-                q_ext,
-                q_reshaped,
-                energy,
-                μ;
-                η = η,
-                aux = aux
-            )
+            fill!(Srow_normal, 0.0 + 0.0im)
+            vector_channel_sweep!(Srow_normal, bubble_row_normal_cache[μ], z)
 
-            external_internal_bubble!(
-                Scol_full,
-                sbs,
-                fields,
-                k_grid,
-                q_ext,
-                q_reshaped,
-                energy,
-                μ;
-                η = η,
-                aux = aux,
-                Nflavor = Nflavor
-            )
+            fill!(Scol_mixed, 0.0 + 0.0im)
+            vector_channel_sweep!(Scol_mixed, bubble_condensate_cache[μ], z)
+            vector_channel_sweep!(Scol_mixed, bubble_active_constraint_cache[μ], z)
 
-            external_internal_bubble_row!(
-                Srow_full,
-                sbs,
-                fields,
-                k_grid,
-                q_ext,
-                q_reshaped,
-                energy,
-                μ;
-                η = η,
-                aux = aux,
-                Nflavor = Nflavor
-            )
-
-            @. Scol_mixed = Scol_full - Scol_normal
-            @. Srow_mixed = Srow_full - Srow_normal
+            fill!(Srow_mixed, 0.0 + 0.0im)
+            vector_channel_sweep!(Srow_mixed, bubble_row_condensate_cache[μ], z)
+            vector_channel_sweep!(Srow_mixed, bubble_row_active_constraint_cache[μ], z)
 
             D_Srow_normal = K \ Srow_normal
             D_Srow_mixed = K \ Srow_mixed

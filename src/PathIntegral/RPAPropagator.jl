@@ -395,6 +395,306 @@ function polarization_normal!(
 end
 
 
+# ----------------------------------------------------------------------
+# Generic ω-independent channel caches
+#
+# `polarization_normal!`, `polarization_condensate_normal!`,
+# `polarization_condensate_condensate!`, `active_constraint_kernel!`, and
+# the external-internal bubble functions (ExternalInternalBubble.jl) all
+# share the same structure: a sum of `coherence * (...) / denom` terms
+# where `denom` is affine in z (`z + ΔE`, or `-(z + ΔE)` for a
+# sign-flipped residue) and everything else -- the Bogoliubov
+# diagonalizations, vertex matrices, and coherence traces -- is
+# z-independent. `dssf_FL` calls all of these once per energy point in a
+# sweep at fixed q, so that z-independent work is redundantly rebuilt at
+# every energy. `MatrixChannelCache`/`VectorChannelCache` store it once
+# per q, with each source function's own prefactor folded into the stored
+# residue at build time so every cache is consumed by the same one-line
+# sweep regardless of which physics function built it.
+#
+# `ΔE` for a given term depends only on the momentum/pole indices summed
+# over (k, m, n, or the fixed-momentum/active-mode analogues), never on
+# which pair of internal fields (iα, iβ) the term contributes to -- every
+# channel is pruned by exactly the same k/pole-dependent conditions, so
+# every channel sees the same sequence of terms. `ΔE` is therefore stored
+# once, shared across all channels; only `residues` varies by channel, and
+# `residues[iα,iβ][t]` (or `residues[i][t]`) always pairs with `ΔE[t]`.
+# ----------------------------------------------------------------------
+
+"""
+    MatrixChannelCache
+
+Cached, frequency-independent `(residue, ΔE)` terms for a matrix-valued
+contribution (`Π[iα,iβ]` or `K[iα,iβ]`). `ΔE[t]` is shared across all
+`(iα, iβ)` channels (see the note above); `residues[iα,iβ][t]` is the
+term paired with it, with each function's own prefactor already folded
+in. Consume with `matrix_channel_sweep!`.
+"""
+struct MatrixChannelCache
+    ΔEs::Vector{Float64}
+    residues::Matrix{Vector{ComplexF64}}
+end
+
+"""
+    matrix_channel_sweep!(M, cache::MatrixChannelCache, z)
+
+Add `Σ residue / (z + ΔE)` per `(iα, iβ)` channel into `M`. Computes the
+shared reciprocal `1 / (z + ΔE[t])` once per term `t` and reuses it across
+every channel, rather than recomputing the same division `nϕ²` times.
+"""
+function matrix_channel_sweep!(
+    M::AbstractMatrix{ComplexF64},
+    cache::MatrixChannelCache,
+    z::Number,
+)
+    nϕ = size(M, 1)
+
+    size(M) == (nϕ, nϕ) == size(cache.residues) ||
+        throw(DimensionMismatch(
+            "`M` and `cache` must have matching (nϕ, nϕ) size."
+        ))
+
+    nterms = length(cache.ΔEs)
+    nterms == 0 && return M
+
+    invdenom = Vector{ComplexF64}(undef, nterms)
+
+    @inbounds @simd for t in 1:nterms
+        invdenom[t] = 1 / (z + cache.ΔEs[t])
+    end
+
+    @inbounds for iβ in 1:nϕ, iα in 1:nϕ
+        r = cache.residues[iα, iβ]
+
+        accum = 0.0 + 0.0im
+
+        @simd for t in 1:nterms
+            accum += r[t] * invdenom[t]
+        end
+
+        M[iα, iβ] += accum
+    end
+
+    return M
+end
+
+"""
+    build_polarization_normal_cache(sbs, fields, kgrid, q, aux; Nflavor = 2)
+
+Build a `MatrixChannelCache` for `polarization_normal!` at fixed `(sbs,
+fields, kgrid, q, aux)`. Mirrors `polarization_normal!`'s own loop nest
+exactly (same iteration order, so summing the cached terms in order
+reproduces the same floating-point result), but defers the frequency
+factor instead of evaluating it immediately. Consume with
+`matrix_channel_sweep!`.
+"""
+function build_polarization_normal_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q::Vec3,
+    aux::SpectralCondensationAux;
+    Nflavor::Real = 2,
+)
+    nϕ = length(fields)
+
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    βtemp = _inverse_temperature(sbs)
+
+    Vrow = zeros(ComplexF64, 12, 12)
+    Vcol = zeros(ComplexF64, 12, 12)
+
+    prefactor = 1 / (2 * Nflavor * Nk)
+
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+
+    for k in kgrid
+        kq = k + q
+
+        ϵs_k, Vk, weights_k = Green_SP_normal_residues(sbs, k, aux)
+        ϵs_kq, Vkq, weights_kq = Green_SP_normal_residues(sbs, kq, aux)
+
+        for (iα, α) in pairs(fields)
+            row_internal_vertices!(Vrow, sbs, α, k, kq)
+
+            for (iβ, β) in pairs(fields)
+                internal_vertices!(Vcol, sbs, β, kq, k)
+
+                for m in eachindex(ϵs_k)
+                    iszero(weights_k[m]) && continue
+
+                    Em = ϵs_k[m]
+                    nb_m = _pole_bose(Em, βtemp)
+
+                    for n in eachindex(ϵs_kq)
+                        iszero(weights_kq[n]) && continue
+
+                        En = ϵs_kq[n]
+                        nb_n = _pole_bose(En, βtemp)
+
+                        occdiff = nb_n - nb_m
+                        iszero(occdiff) && continue
+
+                        coherence = _residue_vertex_trace(
+                            Vkq,
+                            weights_kq,
+                            n,
+                            Vcol,
+                            Vk,
+                            weights_k,
+                            m,
+                            Vrow
+                        )
+
+                        # ΔE depends only on (k, m, n), not on (iα, iβ), so
+                        # it is only recorded once, on the first channel.
+                        iα == 1 && iβ == 1 && push!(ΔEs, real(Em - En))
+                        push!(residues[iα, iβ], prefactor * coherence * occdiff)
+                    end
+                end
+            end
+        end
+    end
+
+    return MatrixChannelCache(ΔEs, residues)
+end
+
+"""
+    VectorChannelCache
+
+Cached, frequency-independent `(residue, ΔE)` terms for a vector-valued
+contribution (`Sβ[iβ]` or `Sα[iα]`). `ΔE[t]` is shared across all field
+indices (see the note above); `residues[i][t]` is the term paired with
+it, with each function's own prefactor already folded in. Consume with
+`vector_channel_sweep!`.
+"""
+struct VectorChannelCache
+    ΔEs::Vector{Float64}
+    residues::Vector{Vector{ComplexF64}}
+end
+
+"""
+    vector_channel_sweep!(S, cache::VectorChannelCache, z)
+
+Add `Σ residue / (z + ΔE)` per field index into `S`. Computes the shared
+reciprocal `1 / (z + ΔE[t])` once per term `t` and reuses it across every
+field index, rather than recomputing the same division for each.
+"""
+function vector_channel_sweep!(
+    S::AbstractVector{ComplexF64},
+    cache::VectorChannelCache,
+    z::Number,
+)
+    n = length(S)
+
+    n == length(cache.residues) ||
+        throw(DimensionMismatch("`S` and `cache` must have matching length."))
+
+    nterms = length(cache.ΔEs)
+    nterms == 0 && return S
+
+    invdenom = Vector{ComplexF64}(undef, nterms)
+
+    @inbounds @simd for t in 1:nterms
+        invdenom[t] = 1 / (z + cache.ΔEs[t])
+    end
+
+    @inbounds for i in 1:n
+        r = cache.residues[i]
+
+        accum = 0.0 + 0.0im
+
+        @simd for t in 1:nterms
+            accum += r[t] * invdenom[t]
+        end
+
+        S[i] += accum
+    end
+
+    return S
+end
+
+"""
+    polarization_cached!(
+        Π,
+        normal_cache,
+        condensate_normal_cache,
+        condensate_condensate_cache,
+        z,
+    )
+
+Equivalent to `polarization!`, but using caches for all three pieces
+(built once per `q` by `build_polarization_normal_cache`,
+`build_polarization_condensate_normal_cache`, and
+`build_polarization_condensate_condensate_cache`) instead of recomputing
+any of them from scratch at every `z`.
+"""
+function polarization_cached!(
+    Π::AbstractMatrix{ComplexF64},
+    normal_cache::MatrixChannelCache,
+    condensate_normal_cache::MatrixChannelCache,
+    condensate_condensate_cache::MatrixChannelCache,
+    z::Number,
+)
+    fill!(Π, 0.0 + 0.0im)
+
+    matrix_channel_sweep!(Π, normal_cache, z)
+    matrix_channel_sweep!(Π, condensate_normal_cache, z)
+    matrix_channel_sweep!(Π, condensate_condensate_cache, z)
+
+    return Π
+end
+
+"""
+    rpa_kernel_cached!(
+        K,
+        Π0,
+        normal_cache,
+        condensate_normal_cache,
+        condensate_condensate_cache,
+        active_constraint_cache,
+        z,
+    )
+
+Equivalent to the 6-argument `rpa_kernel!`, but taking a precomputed `Π0`
+(from `Pi0!`, independent of `q`, `z`, and the k-grid) and caches for the
+normal, condensate-normal, condensate-condensate, and active-constraint
+pieces (all built once per `q`) instead of recomputing any of them at
+every frequency `z`.
+"""
+function rpa_kernel_cached!(
+    K::AbstractMatrix{ComplexF64},
+    Π0::AbstractMatrix{ComplexF64},
+    normal_cache::MatrixChannelCache,
+    condensate_normal_cache::MatrixChannelCache,
+    condensate_condensate_cache::MatrixChannelCache,
+    active_constraint_cache::MatrixChannelCache,
+    z::Number,
+)
+    size(K) == size(Π0) ||
+        throw(DimensionMismatch("`K` and `Π0` must have the same size."))
+
+    Π = similar(K)
+
+    polarization_cached!(
+        Π,
+        normal_cache,
+        condensate_normal_cache,
+        condensate_condensate_cache,
+        z,
+    )
+
+    rpa_kernel!(K, Π0, Π)
+
+    matrix_channel_sweep!(K, active_constraint_cache, z)
+
+    return K
+end
+
+
 """
     polarization_condensate_normal!(
         Π,
@@ -549,6 +849,132 @@ function polarization_condensate_normal!(
     return Π
 end
 
+"""
+    build_polarization_condensate_normal_cache(sbs, fields, kgrid, q, aux; Nflavor = 2)
+
+Build a `MatrixChannelCache` for `polarization_condensate_normal!` at fixed
+`(sbs, fields, kgrid, q, aux)`. Mirrors its loop nest exactly (both fixed-
+momentum orderings), deferring only the frequency-dependent `denom`.
+"""
+function build_polarization_condensate_normal_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q::Vec3,
+    aux::SpectralCondensationAux;
+    Nflavor::Real = 2,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+
+    isempty(aux.conden_band_indices) &&
+        return MatrixChannelCache(ΔEs, residues)
+
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+    βtemp = _inverse_temperature(sbs)
+
+    Vrow = zeros(ComplexF64, 12, 12)
+    Vcol = zeros(ComplexF64, 12, 12)
+
+    prefactor = 1 / (2 * Nflavor * Nk)
+
+    kc = qc
+    kn = qc + q
+
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kn)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kn, kc)
+
+            for m in eachindex(ϵs_c)
+                iszero(weights_c[m]) && continue
+
+                Em = ϵs_c[m]
+                nb_m = _pole_bose(Em, βtemp)
+
+                for n in eachindex(ϵs_n)
+                    iszero(weights_n[n]) && continue
+
+                    En = ϵs_n[n]
+                    nb_n = _pole_bose(En, βtemp)
+
+                    occdiff = nb_n - nb_m
+                    iszero(occdiff) && continue
+
+                    coherence = _residue_vertex_trace(
+                        Vn,
+                        weights_n,
+                        n,
+                        Vcol,
+                        Vc,
+                        weights_c,
+                        m,
+                        Vrow
+                    )
+
+                    iα == 1 && iβ == 1 && push!(ΔEs, real(Em - En))
+                    push!(residues[iα, iβ], prefactor * coherence * occdiff)
+                end
+            end
+        end
+    end
+
+    kn = qc - q
+    kc = qc
+
+    ϵs_n, Vn, weights_n = Green_SP_normal_residues(sbs, kn, aux)
+    ϵs_c, Vc, weights_c = Green_SP_condensed_residues(sbs, kc, aux)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kn, kc)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kc, kn)
+
+            for m in eachindex(ϵs_n)
+                iszero(weights_n[m]) && continue
+
+                Em = ϵs_n[m]
+                nb_m = _pole_bose(Em, βtemp)
+
+                for n in eachindex(ϵs_c)
+                    iszero(weights_c[n]) && continue
+
+                    En = ϵs_c[n]
+                    nb_n = _pole_bose(En, βtemp)
+
+                    occdiff = nb_n - nb_m
+                    iszero(occdiff) && continue
+
+                    coherence = _residue_vertex_trace(
+                        Vc,
+                        weights_c,
+                        n,
+                        Vcol,
+                        Vn,
+                        weights_n,
+                        m,
+                        Vrow
+                    )
+
+                    iα == 1 && iβ == 1 && push!(ΔEs, real(Em - En))
+                    push!(residues[iα, iβ], prefactor * coherence * occdiff)
+                end
+            end
+        end
+    end
+
+    return MatrixChannelCache(ΔEs, residues)
+end
+
 
 """
     polarization_condensate_condensate!(
@@ -652,6 +1078,91 @@ function polarization_condensate_condensate!(
     end
 
     return Π
+end
+
+"""
+    build_polarization_condensate_condensate_cache(sbs, fields, kgrid, q, aux; Nflavor = 2)
+
+Build a `MatrixChannelCache` for `polarization_condensate_condensate!` at
+fixed `(sbs, fields, kgrid, q, aux)`. Nonzero only when the external
+momentum maps the condensate momentum back to itself, matching the source
+function's early return.
+"""
+function build_polarization_condensate_condensate_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    kgrid,
+    q::Vec3,
+    aux::SpectralCondensationAux;
+    Nflavor::Real = 2,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+
+    isempty(aux.conden_band_indices) &&
+        return MatrixChannelCache(ΔEs, residues)
+
+    Nk = length(kgrid)
+    Nk > 0 || throw(ArgumentError("`kgrid` must not be empty."))
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+
+    kc = qc
+    kq = qc + q
+
+    _same_momentum_mod1(kq, qc) || return MatrixChannelCache(ΔEs, residues)
+
+    βtemp = _inverse_temperature(sbs)
+
+    Vrow = zeros(ComplexF64, 12, 12)
+    Vcol = zeros(ComplexF64, 12, 12)
+
+    ϵs_k, Vk, weights_k = Green_SP_condensed_residues(sbs, kc, aux)
+    ϵs_kq, Vkq, weights_kq = Green_SP_condensed_residues(sbs, kq, aux)
+
+    prefactor = 1 / (2 * Nflavor * Nk)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kq)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kq, kc)
+
+            for m in eachindex(ϵs_k)
+                iszero(weights_k[m]) && continue
+
+                Em = ϵs_k[m]
+                nb_m = _pole_bose(Em, βtemp)
+
+                for n in eachindex(ϵs_kq)
+                    iszero(weights_kq[n]) && continue
+
+                    En = ϵs_kq[n]
+                    nb_n = _pole_bose(En, βtemp)
+
+                    occdiff = nb_n - nb_m
+                    iszero(occdiff) && continue
+
+                    coherence = _residue_vertex_trace(
+                        Vkq,
+                        weights_kq,
+                        n,
+                        Vcol,
+                        Vk,
+                        weights_k,
+                        m,
+                        Vrow
+                    )
+
+                    iα == 1 && iβ == 1 && push!(ΔEs, real(Em - En))
+                    push!(residues[iα, iβ], prefactor * coherence * occdiff)
+                end
+            end
+        end
+    end
+
+    return MatrixChannelCache(ΔEs, residues)
 end
 
 
@@ -849,6 +1360,144 @@ function active_constraint_kernel!(
     end
 
     return K
+end
+
+"""
+    build_active_constraint_kernel_cache(sbs, fields, q, aux; Nflavor = 2)
+
+Build a `MatrixChannelCache` for `active_constraint_kernel!` at fixed
+`(sbs, fields, q, aux)`. The source function's `denom = Ei - En + z`
+(first ordering) is `z + (Ei - En)`; its `denom = Ei - Em - z` (second
+ordering) is `-(z + (Em - Ei))`, so the second ordering's residue carries
+a sign flip and its cached ΔE is `Em - Ei` rather than `Ei - Em`.
+"""
+function build_active_constraint_kernel_cache(
+    sbs::SchwingerBosonSystem,
+    fields::AbstractVector{InternalField},
+    q::Vec3,
+    aux::SpectralCondensationAux;
+    Nflavor::Real = 2,
+)
+    nϕ = length(fields)
+    ΔEs = Float64[]
+    residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+
+    aux.selection_kind === :pinned || return MatrixChannelCache(ΔEs, residues)
+    isempty(aux.conden_band_indices) && return MatrixChannelCache(ΔEs, residues)
+
+    qc = _spectral_condensation_momentum(aux, sbs.L)
+
+    Vrow = zeros(ComplexF64, 12, 12)
+    Vcol = zeros(ComplexF64, 12, 12)
+
+    kc = qc
+
+    ϵs_c, Vc, _ = Green_SP_condensed_residues(sbs, kc, aux)
+
+    active_weights = aux.active_positive_weights
+    active_mask = active_weights .> 0.0
+
+    unit_active_weights = zeros(Float64, length(ϵs_c))
+
+    # First ordering: denom = Ei - En + z = z + (Ei - En).
+    kn = qc + q
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kc, kn)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kn, kc)
+
+            for i in eachindex(ϵs_c)
+                ξi = active_weights[i]
+                iszero(ξi) && continue
+
+                Ei = ϵs_c[i]
+
+                fill!(unit_active_weights, 0.0)
+                unit_active_weights[i] = 1.0
+
+                for n in eachindex(ϵs_n)
+                    if exclude_active_intermediate &&
+                       n <= length(active_mask) &&
+                       active_mask[n]
+                        continue
+                    end
+
+                    En = ϵs_n[n]
+
+                    coherence = _residue_vertex_trace(
+                        Vn,
+                        weights_n,
+                        n,
+                        Vcol,
+                        Vc,
+                        unit_active_weights,
+                        i,
+                        Vrow
+                    )
+
+                    iα == 1 && iβ == 1 && push!(ΔEs, real(Ei - En))
+                    push!(residues[iα, iβ], ξi * coherence / Nflavor)
+                end
+            end
+        end
+    end
+
+    # Second ordering: denom = Ei - Em - z = -(z + (Em - Ei)).
+    kn = qc - q
+
+    ϵs_n, Vn, weights_n = _full_sp_residues(sbs, kn)
+
+    exclude_active_intermediate = _same_momentum_mod1(kn, qc)
+
+    for (iα, α) in pairs(fields)
+        row_internal_vertices!(Vrow, sbs, α, kn, kc)
+
+        for (iβ, β) in pairs(fields)
+            internal_vertices!(Vcol, sbs, β, kc, kn)
+
+            for i in eachindex(ϵs_c)
+                ξi = active_weights[i]
+                iszero(ξi) && continue
+
+                Ei = ϵs_c[i]
+
+                fill!(unit_active_weights, 0.0)
+                unit_active_weights[i] = 1.0
+
+                for m in eachindex(ϵs_n)
+                    if exclude_active_intermediate &&
+                       m <= length(active_mask) &&
+                       active_mask[m]
+                        continue
+                    end
+
+                    Em = ϵs_n[m]
+
+                    coherence = _residue_vertex_trace(
+                        Vc,
+                        unit_active_weights,
+                        i,
+                        Vcol,
+                        Vn,
+                        weights_n,
+                        m,
+                        Vrow
+                    )
+
+                    iα == 1 && iβ == 1 && push!(ΔEs, real(Em - Ei))
+                    push!(residues[iα, iβ], -ξi * coherence / Nflavor)
+                end
+            end
+        end
+    end
+
+    return MatrixChannelCache(ΔEs, residues)
 end
 
 
