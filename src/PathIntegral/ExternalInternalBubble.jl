@@ -265,6 +265,7 @@ function build_external_internal_bubble_normal_cache(
 
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, Nk * 144)
 
     for k in kgrid
         kq = k + q_reshaped
@@ -447,6 +448,7 @@ function build_external_internal_bubble_row_normal_cache(
 
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, Nk * 144)
 
     for k in kgrid
         kq = k + q_reshaped
@@ -664,6 +666,7 @@ function build_external_internal_bubble_condensate_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 2 * 144)  # 2 fixed-momentum orderings, 12x12 pole pairs each
 
     isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
 
@@ -940,6 +943,7 @@ function build_external_internal_bubble_row_condensate_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 2 * 144)  # 2 fixed-momentum orderings, 12x12 pole pairs each
 
     isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
 
@@ -1202,6 +1206,7 @@ function build_external_internal_bubble_active_constraint_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 2 * 144)  # 2 orderings, up to 12x12 (i, n) pairs each
 
     aux.selection_kind === :pinned || return VectorChannelCache(ΔEs, residues)
     isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)
@@ -1465,6 +1470,7 @@ function build_external_internal_bubble_row_active_constraint_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 2 * 144)  # 2 orderings, up to 12x12 (i, n) pairs each
 
     aux.selection_kind === :pinned || return VectorChannelCache(ΔEs, residues)
     isempty(aux.conden_band_indices) && return VectorChannelCache(ΔEs, residues)

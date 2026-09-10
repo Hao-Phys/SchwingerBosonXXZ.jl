@@ -435,6 +435,31 @@ struct MatrixChannelCache
     residues::Matrix{Vector{ComplexF64}}
 end
 
+# Every build_* function below grows ΔEs/residues with push!. Without a
+# capacity hint, Julia's geometric buffer growth leaves ~1.7x unused
+# slack once a vector stops growing (measured) -- real, referenced memory
+# that adds up once a cache is held for the lifetime of a q-point, often
+# across many concurrently-building threads. `_reserve_channel_cache!`
+# reserves each vector's capacity upfront from a cheap combinatorial
+# upper bound on the number of surviving terms, so push! never needs to
+# grow-and-copy. (An earlier version of this fix instead shrunk the
+# buffers to their exact size with `copy` after the fact; that measurably
+# made real-world peak RSS *worse* under concurrent threads, since it
+# momentarily holds both the loose and tight buffers at once -- more
+# total bytes churned through the allocator than reserving capacity
+# once, upfront, ever requires.)
+function _reserve_channel_cache!(
+    ΔEs::Vector{Float64},
+    residues,
+    nterms_upper_bound::Int,
+)
+    sizehint!(ΔEs, nterms_upper_bound)
+    for r in residues
+        sizehint!(r, nterms_upper_bound)
+    end
+    return nothing
+end
+
 """
     matrix_channel_sweep!(M, cache::MatrixChannelCache, z)
 
@@ -510,6 +535,7 @@ function build_polarization_normal_cache(
 
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, Nk * 144)
 
     for k in kgrid
         kq = k + q
@@ -867,6 +893,7 @@ function build_polarization_condensate_normal_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 2 * 144)  # 2 fixed-momentum orderings, 12x12 pole pairs each
 
     isempty(aux.conden_band_indices) &&
         return MatrixChannelCache(ΔEs, residues)
@@ -1099,6 +1126,7 @@ function build_polarization_condensate_condensate_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 144)  # 1 fixed momentum, 12x12 pole pairs
 
     isempty(aux.conden_band_indices) &&
         return MatrixChannelCache(ΔEs, residues)
@@ -1381,6 +1409,7 @@ function build_active_constraint_kernel_cache(
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ, _ in 1:nϕ]
+    _reserve_channel_cache!(ΔEs, residues, 2 * 144)  # 2 orderings, up to 12x12 (i, n) pairs each
 
     aux.selection_kind === :pinned || return MatrixChannelCache(ΔEs, residues)
     isempty(aux.conden_band_indices) && return MatrixChannelCache(ΔEs, residues)
