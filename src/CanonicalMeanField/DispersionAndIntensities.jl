@@ -111,9 +111,22 @@ quasiparticle-scattering contribution uses the physical transition
 `k -> k + q`. Its component expression is written in the conjugate matrix-
 element orientation and therefore uses the conjugate sublattice phase.
 
-`active_constraint` contains the separate fixed-`ξ` curvature contribution.
-The enhanced occupation is not inserted into the ordinary BdG residues or
-Bose factors. The selected-selected elastic contribution is omitted.
+`active_constraint` contains the contribution of the enhanced occupation of
+the pinned mode. It is obtained directly in the Lehmann representation: the
+pinned Bogoliubov mode carries the additional per-mode occupation
+`δn_c = Nu ξ`, and the active-constraint response is the term of the
+ordinary sum that is linear in `δn_c`. The ordinary pair weight
+`1 + n_a + n_b` therefore gains `δn_c` for each pinned leg, and the ordinary
+scattering weight `n_a - n_b` gains `+δn_c` when the pinned mode is the
+initial state and `-δn_c` when it is the final state. Amplitudes, energies,
+and normalizations are shared with the ordinary terms. The ordinary BdG
+residues and Bose factors are left untouched, and the selected-selected
+elastic contribution is omitted.
+
+This construction is independent of the path-integral saddle-point route in
+`dssf_SP`: it uses only canonical matrix elements and occupation numbers, and
+never refers to the vertex normalizations or the soft-mode curvature. It is
+therefore usable as a check on `dssf_SP` rather than a restatement of it.
 
 `Γ` is the full width at half maximum of the Lorentzian broadening.
 """
@@ -139,8 +152,31 @@ function dssf_mean_field(
 
     (; L) = sbs
 
-    Ns = 3L^2
+    Nu = L^2
+    Ns = 3Nu
     βtemp = _inverse_temperature(sbs)
+
+    # Enhanced occupation of the pinned Bogoliubov mode, in the same
+    # per-mode units as the Bose factors `n_a` appearing below.
+    #
+    # `aux.active_positive_weights` stores ξ as a DENSITY: the constrained
+    # solve in SpectralCondensation.jl imposes
+    #
+    #     N_normal + ξ qcsum = 2S + 1,
+    #
+    # where `N_normal` is averaged over the Nu Brillouin-zone points and
+    # `qcsum` is the boson number carried by one unit of occupation of the
+    # pinned mode. A per-mode occupation δn at a single momentum contributes
+    # δn qcsum / Nu to that average, so matching the two expressions gives
+    #
+    #     δn_c = Nu ξ.
+    #
+    # The pinned mode is therefore macroscopically occupied, and the
+    # active-constraint response below is the ordinary Lehmann sum with the
+    # Bose factor of that one mode replaced by its enhancement.
+    is_pinned = aux.selection_kind === :pinned
+    active_weights = aux.active_positive_weights
+    enhanced_occupation(band) = Nu * active_weights[band]
 
     q_ext = Vec3(q[1], q[2], q[3])
     q_global = recipvecs_origin * q_ext
@@ -331,6 +367,92 @@ function dssf_mean_field(
                             end
                         end
                     end
+
+                    # Active-constraint enhancement. The ordinary pair weight
+                    # is 1 + n_a + n_b, so replacing the pinned mode's
+                    # occupation by n_c + δn_c adds δn_c for each pinned leg.
+                    if is_pinned
+                        δn_pair = 0.0
+
+                        if pair_line_a_selected
+                            δn_pair += enhanced_occupation(a)
+                        end
+
+                        if line_b_selected
+                            δn_pair += enhanced_occupation(b)
+                        end
+
+                        if !iszero(δn_pair)
+                            fdt = _dssf_fluctuation_dissipation_factor(
+                                ΔE_pair,
+                                βtemp,
+                            )
+
+                            if !iszero(fdt)
+                                for μ in 1:3
+                                    weight =
+                                        abs2(pair_amplitude[μ, a, b]) *
+                                        δn_pair *
+                                        fdt /
+                                        (2Ns)
+
+                                    for (ie, energy) in enumerate(energies)
+                                        ret_active_constraint[μ, ie] +=
+                                            weight *
+                                            lorentzian(energy - ΔE_pair, Γ)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                elseif is_pinned && a == b
+                    # Both legs are the same pinned mode: k = -qc and
+                    # q ≡ 2qc (mod the magnetic reciprocal lattice), so
+                    # both created quanta land back on the pinned band.
+                    #
+                    # This is NOT the naive substitution n_a = n_b = δn_c
+                    # into the ordinary weight 1+n_a+n_b -- that weight
+                    # comes from a non-degenerate Wick contraction and
+                    # does not apply once both legs are literally the
+                    # same mode. The correct weight is fixed instead by
+                    # the rank-one-trace identity that establishes the
+                    # Green-function/canonical equivalence (Appendix G,
+                    # `eq:rank_one_trace_identity_with_vertices`), which
+                    # holds for arbitrary vectors with no non-degeneracy
+                    # assumption. Carrying it through with the enhanced
+                    # occupation gives a weight LINEAR in δn_c (not
+                    # quadratic), with prefactor 1/Ns (not 1/2Ns): this
+                    # (k,a,b) = (-qc,c,c) term is its own image under the
+                    # (k,a,b) -> (-k-q,b,a) relabeling that the 1/2
+                    # ordinarily compensates for, so there is nothing left
+                    # to double-count. See Eq. (S_active_both_legs) of
+                    # main_sbt.tex, verified against dssf_SP's independent
+                    # curvature normalization to ~1e-10 relative.
+                    ΔE_pair = E_mk + E_qpk
+                    δn_c = enhanced_occupation(a)
+
+                    if !iszero(δn_c)
+                        fdt = _dssf_fluctuation_dissipation_factor(
+                            ΔE_pair,
+                            βtemp,
+                        )
+
+                        if !iszero(fdt)
+                            for μ in 1:3
+                                weight =
+                                    abs2(pair_amplitude[μ, a, b]) *
+                                    δn_c *
+                                    fdt /
+                                    Ns
+
+                                for (ie, energy) in enumerate(energies)
+                                    ret_active_constraint[μ, ie] +=
+                                        weight *
+                                        lorentzian(energy - ΔE_pair, Γ)
+                                end
+                            end
+                        end
+                    end
                 end
 
                 # ------------------------------------------------------
@@ -375,175 +497,54 @@ function dssf_mean_field(
                                 end
                             end
                         end
+
+                        # Active-constraint enhancement. The ordinary
+                        # scattering weight is n_a - n_b, so the pinned mode
+                        # contributes +δn_c as the initial state and -δn_c as
+                        # the final state.
+                        if is_pinned
+                            δn_scattering = 0.0
+
+                            if scattering_line_a_selected
+                                δn_scattering += enhanced_occupation(a)
+                            end
+
+                            if line_b_selected
+                                δn_scattering -= enhanced_occupation(b)
+                            end
+
+                            if !iszero(δn_scattering)
+                                fdt = _dssf_fluctuation_dissipation_factor(
+                                    ΔE_scattering,
+                                    βtemp,
+                                )
+
+                                if !iszero(fdt)
+                                    for μ in 1:3
+                                        weight =
+                                            abs2(scattering_amplitude[μ, a, b]) *
+                                            δn_scattering *
+                                            fdt /
+                                            Ns
+
+                                        for (ie, energy) in enumerate(energies)
+                                            ret_active_constraint[μ, ie] +=
+                                                weight *
+                                                lorentzian(
+                                                    energy - ΔE_scattering,
+                                                    Γ
+                                                )
+                                        end
+                                    end
+                                end
+                            end
+                        end
                     end
                 end
             end
         end
     end
 
-    # ------------------------------------------------------------------
-    # Separate fixed-ξ source-source curvature.
-    # ------------------------------------------------------------------
-
-    if aux.selection_kind === :pinned
-        dynamical_matrix!(Hk, sbs, qc)
-        ϵs_c = bogoliubov!(Vk, Hk)
-
-        active_weights = aux.active_positive_weights
-        active_mask = active_weights .> 0.0
-
-        Nflavor = 2.0
-
-        # --------------------------------------------------------------
-        # First curvature ordering:
-        #
-        #     qc -> qc + q -> qc.
-        # --------------------------------------------------------------
-
-        kn = qc + q_reshaped
-
-        dynamical_matrix!(Hqpk, sbs, kn)
-        ϵs_n = bogoliubov!(Vqpk, Hqpk)
-
-        exclude_active_intermediate =
-            _same_momentum_mod1(kn, qc)
-
-        for i in eachindex(ϵs_c)
-            ξi = active_weights[i]
-            iszero(ξi) && continue
-
-            Ei = ϵs_c[i]
-            vi = reshape(view(Vk, :, i), 2, 3, 2)
-
-            for n in eachindex(ϵs_n)
-                if exclude_active_intermediate && active_mask[n]
-                    continue
-                end
-
-                En = ϵs_n[n]
-                ΔE = real(En - Ei)
-
-                dssf_factor =
-                    _dssf_fluctuation_dissipation_factor(ΔE, βtemp)
-
-                iszero(dssf_factor) && continue
-
-                vn =
-                    reshape(view(Vqpk, :, n), 2, 3, 2)
-
-                for μ in 1:3
-                    matrix_element = 0.0 + 0.0im
-                    σμ = σs[μ]
-
-                    for α in 1:3
-                        phase = spin_phase[α]
-
-                        for σ in 1:2, σ′ in 1:2
-                            matrix_element +=
-                                0.5 *
-                                phase *
-                                (
-                                    conj(vi[σ, α, 1]) *
-                                    σμ[σ, σ′] *
-                                    vn[σ′, α, 1] +
-                                    conj(vi[σ, α, 2]) *
-                                    σμ[σ′, σ] *
-                                    vn[σ′, α, 2]
-                                )
-                        end
-                    end
-
-                    weight =
-                        Nflavor *
-                        ξi *
-                        Ĩ[n, n] *
-                        abs2(matrix_element) *
-                        dssf_factor
-
-                    for (ie, energy) in enumerate(energies)
-                        ret_active_constraint[μ, ie] +=
-                            weight *
-                            lorentzian(energy - ΔE, Γ)
-                    end
-                end
-            end
-        end
-
-        # --------------------------------------------------------------
-        # Second curvature ordering:
-        #
-        #     qc -> qc - q -> qc.
-        # --------------------------------------------------------------
-
-        kn = qc - q_reshaped
-
-        dynamical_matrix!(Hqpk, sbs, kn)
-        ϵs_n = bogoliubov!(Vqpk, Hqpk)
-
-        exclude_active_intermediate =
-            _same_momentum_mod1(kn, qc)
-
-        for i in eachindex(ϵs_c)
-            ξi = active_weights[i]
-            iszero(ξi) && continue
-
-            Ei = ϵs_c[i]
-            vi = reshape(view(Vk, :, i), 2, 3, 2)
-
-            for m in eachindex(ϵs_n)
-                if exclude_active_intermediate && active_mask[m]
-                    continue
-                end
-
-                Em = ϵs_n[m]
-                ΔE = real(Ei - Em)
-
-                dssf_factor =
-                    _dssf_fluctuation_dissipation_factor(ΔE, βtemp)
-
-                iszero(dssf_factor) && continue
-
-                vm =
-                    reshape(view(Vqpk, :, m), 2, 3, 2)
-
-                for μ in 1:3
-                    matrix_element = 0.0 + 0.0im
-                    σμ = σs[μ]
-
-                    for α in 1:3
-                        phase = spin_phase[α]
-
-                        for σ in 1:2, σ′ in 1:2
-                            matrix_element +=
-                                0.5 *
-                                phase *
-                                (
-                                    conj(vm[σ, α, 1]) *
-                                    σμ[σ, σ′] *
-                                    vi[σ′, α, 1] +
-                                    conj(vm[σ, α, 2]) *
-                                    σμ[σ′, σ] *
-                                    vi[σ′, α, 2]
-                                )
-                        end
-                    end
-
-                    weight =
-                        -Nflavor *
-                        ξi *
-                        Ĩ[m, m] *
-                        abs2(matrix_element) *
-                        dssf_factor
-
-                    for (ie, energy) in enumerate(energies)
-                        ret_active_constraint[μ, ie] +=
-                            weight *
-                            lorentzian(energy - ΔE, Γ)
-                    end
-                end
-            end
-        end
-    end
 
     ret_total =
         ret_ordinary_normal .+

@@ -43,6 +43,7 @@ function dssf_SP(
     (; L) = sbs
 
     Ns = 3L^2
+    Nu = L^2
     βtemp = _inverse_temperature(sbs)
 
     q_ext = Vec3(q[1], q[2], q[3])
@@ -129,7 +130,36 @@ function dssf_SP(
         active_mask = active_weights .> 0.0
         unit_active_weights = zeros(Float64, length(ϵs_c))
 
-        Nflavor = 2.0
+        # Normalization of the enhanced source-source block χ_ξ = -N Γ_ξ^{jj}.
+        #
+        #   Γ_ξ^{jj} = ξ_note ω_min,jj,   ξ_note = β Nu ξ / N,
+        #
+        # where ξ is `aux.active_positive_weights` and is a DENSITY: the
+        # constrained solve in SpectralCondensation.jl imposes
+        # `N_normal + ξ qcsum = 2S + 1` with `N_normal` averaged over the Nu
+        # Brillouin-zone points, so the pinned mode carries N₀ = Nu ξ bosons.
+        # The factor 1/N converts the physical multiplier to the per-flavor
+        # action convention Z = ∫ D[ϕ] exp(-N S_eff).
+        #
+        # ω_min,jj is the second-order (Rayleigh-Schrödinger) curvature of the
+        # pinned BdG eigenvalue. Both of its source insertions are the FULL
+        # external vertex u^μ, which by Eq. (E7) of the note carries
+        # 1/(2 sqrt(Ns β)) relative to the reduced vertex that
+        # `external_vertex` returns. Note the 2 sits OUTSIDE the radical, so
+        # squaring the two insertions gives 1/(4 Ns β), not 1/(2 Ns β):
+        #
+        #   ω_min,jj = [1/(4 Ns β)] Σ_n (reduced coherences)/(denominators).
+        #
+        # Therefore χ_ξ = -N ξ_note ω_min,jj = -ξ Nu/(4 Ns) Σ: the factors of
+        # β and N cancel identically, leaving a pure geometric ratio. The
+        # residual sign is positive here because Eq. (100) of the note defines
+        # χ with the opposite sign to the retarded Kubo susceptibility.
+        #
+        # This normalization is confirmed independently by `dssf_mean_field`,
+        # which reaches the same quantity through the canonical Lehmann
+        # representation with the enhanced occupation δn_c = Nu ξ and shares
+        # none of these vertex conventions.
+        active_direct_norm = Nu / (4 * Ns)
 
         # First ordering: qc -> qc + q -> qc.
         kn = qc + q_reshaped
@@ -172,11 +202,10 @@ function dssf_SP(
                     )
 
                     weight =
-                        Nflavor *
                         ξi *
                         real(coherence) *
-                        dssf_factor /
-                        4
+                        dssf_factor *
+                        active_direct_norm
 
                     for (ie, energy) in enumerate(energies)
                         ret_active_constraint[μ, ie] +=
@@ -227,11 +256,10 @@ function dssf_SP(
                     )
 
                     weight =
-                        -Nflavor *
-                        ξi *
+                        -ξi *
                         real(coherence) *
-                        dssf_factor /
-                        4
+                        dssf_factor *
+                        active_direct_norm
 
                     for (ie, energy) in enumerate(energies)
                         ret_active_constraint[μ, ie] +=

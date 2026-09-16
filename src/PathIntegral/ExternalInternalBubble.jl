@@ -1085,7 +1085,34 @@ function external_internal_bubble_active_constraint!(
     active_mask = active_weights .> 0.0
     unit_active_weights = zeros(Float64, length(ϵs_c))
 
-    prefactor = Nflavor
+    # Normalization of the enhanced source-auxiliary block, S_β += +N Γ_ξ^{jϕ}.
+    #
+    #   Γ_ξ^{jϕ} = ξ_note ω_min,jϕ,   ξ_note = β Nu ξ / N,
+    #
+    # with ξ = `aux.active_positive_weights` a DENSITY (the constrained solve
+    # in SpectralCondensation.jl imposes `N_normal + ξ qcsum = 2S + 1`, with
+    # `N_normal` averaged over the Nu Brillouin-zone points, so the pinned mode
+    # holds N₀ = Nu ξ bosons) and 1/N converting the physical multiplier to the
+    # per-flavor action convention Z = ∫ D[ϕ] exp(-N S_eff).
+    #
+    # ω_min,jϕ is the mixed second-order curvature of the pinned BdG
+    # eigenvalue. One insertion is the FULL external vertex u^μ, carrying
+    # 1/(2 sqrt(Ns β)) by Eq. (E7) of the note -- the 2 is OUTSIDE the radical
+    # -- and the other is the FULL internal vertex v_β, carrying 1/sqrt(Nu β)
+    # by Eq. (H43). Relative to the reduced vertices used in the loops below,
+    #
+    #   ω_min,jϕ = [1/(2 β sqrt(Ns Nu))] Σ (reduced coherence)/(denominator),
+    #
+    # so S_β picks up N ξ_note/(2 β sqrt(Ns Nu)) = ξ sqrt(Nu/(4 Ns)). Both β
+    # and the flavor count N cancel identically, leaving a pure geometric
+    # ratio; `Nflavor` therefore does not enter this prefactor.
+    #
+    # The overall scale is confirmed independently by `dssf_mean_field`, which
+    # reaches the same response through the canonical Lehmann representation
+    # and shares none of these vertex conventions.
+    Ns = 3 * sbs.L^2
+    Nu = sbs.L^2
+    prefactor = sqrt(Nu / (4 * Ns))
 
     kn = qc + q_reshaped
 
@@ -1203,6 +1230,12 @@ function build_external_internal_bubble_active_constraint_cache(
     aux::SpectralCondensationAux;
     Nflavor::Real = 2,
 )
+    # Prefactor sqrt(Nu/(4 Ns)); see the derivation comment in
+    # `external_internal_bubble_active_constraint!`. It is independent of
+    # `Nflavor` because the N of Eq. (I21)'s +N Γ_ξ cancels the 1/N carried by
+    # ξ_note = β Nu ξ / N.
+    prefactor = sqrt(sbs.L^2 / (4 * 3 * sbs.L^2))
+
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
@@ -1264,7 +1297,7 @@ function build_external_internal_bubble_active_constraint_cache(
                 )
 
                 iβ == 1 && push!(ΔEs, real(Ei - En))
-                push!(residues[iβ], Nflavor * ξi * coherence)
+                push!(residues[iβ], prefactor * ξi * coherence)
             end
         end
     end
@@ -1307,7 +1340,7 @@ function build_external_internal_bubble_active_constraint_cache(
                 )
 
                 iβ == 1 && push!(ΔEs, real(Em - Ei))
-                push!(residues[iβ], -Nflavor * ξi * coherence)
+                push!(residues[iβ], -prefactor * ξi * coherence)
             end
         end
     end
@@ -1351,7 +1384,12 @@ function external_internal_bubble_row_active_constraint!(
     active_mask = active_weights .> 0.0
     unit_active_weights = zeros(Float64, length(ϵs_c))
 
-    prefactor = Nflavor
+    # Row partner of the enhanced source-auxiliary block, S_α += +N Γ_ξ^{ϕj}.
+    # Same normalization as the column block; see the derivation comment in
+    # `external_internal_bubble_active_constraint!`.
+    Ns = 3 * sbs.L^2
+    Nu = sbs.L^2
+    prefactor = sqrt(Nu / (4 * Ns))
 
     kn = qc + q_reshaped
 
@@ -1467,6 +1505,10 @@ function build_external_internal_bubble_row_active_constraint_cache(
     aux::SpectralCondensationAux;
     Nflavor::Real = 2,
 )
+    # Same prefactor as the column cache; see the derivation comment in
+    # `external_internal_bubble_active_constraint!`.
+    prefactor = sqrt(sbs.L^2 / (4 * 3 * sbs.L^2))
+
     nϕ = length(fields)
     ΔEs = Float64[]
     residues = [ComplexF64[] for _ in 1:nϕ]
@@ -1528,7 +1570,7 @@ function build_external_internal_bubble_row_active_constraint_cache(
                 )
 
                 iα == 1 && push!(ΔEs, real(Ei - En))
-                push!(residues[iα], Nflavor * ξi * coherence)
+                push!(residues[iα], prefactor * ξi * coherence)
             end
         end
     end
@@ -1571,7 +1613,7 @@ function build_external_internal_bubble_row_active_constraint_cache(
                 )
 
                 iα == 1 && push!(ΔEs, real(Em - Ei))
-                push!(residues[iα], -Nflavor * ξi * coherence)
+                push!(residues[iα], -prefactor * ξi * coherence)
             end
         end
     end
